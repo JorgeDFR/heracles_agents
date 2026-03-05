@@ -1,4 +1,4 @@
-system: | 
+system: |
   Your task is to map from natural language instructions to symbols in a 3D world representation.
   You will be provided with a description of the world known as a 3D Scene Graph.
   Below is a description of 3D scene graphs (delimited by XML tags: <Scene Graph Description> description of 3D Scene Graphs </Scene Graph Description>).
@@ -8,7 +8,6 @@ system: |
   Unless otherwise specified, you should return the node symbols of things you are asked about.
   Do not return more information than is explicitly requested.
   Node symbols should NOT have parentheses or quotes.
-
 
 scene_graph_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/scene_graph_description.yaml
 labelspace_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/building_45_labelspace.yaml
@@ -33,19 +32,14 @@ Rooms:
 "
 
 in_context_examples:
-
   - user: "What is the most common object type?"
     assistant: "tree"
-
   - user: "What are the object types?"
     assistant: "<tree, vehicle, door, boat, seating>"
-
   - user: "How many of each object are there?"
     assistant: "{tree: 3, vehicle: 2, door: 1, boat: 1, seating: 1}"
-
   - user: "How many rooms are there?"
     assistant: "3"
-
   - user: "What room types are present?"
     assistant: "<courtyard, parking_lot, dock>"
 

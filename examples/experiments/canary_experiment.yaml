@@ -1,25 +1,29 @@
-dsg_interface:
-    dsg_interface_type: heracles
-    uri: abc
+metadata: {}
+configurations:
 
-phases:
-    main:
-        client:
-            client_type: openai
-            # auth key is supplied by HERACLES_OPENAI_API_KEY
-            timeout: 20
+    canary:
+        dsg_interface:
+            dsg_interface_type: none
 
-        model_info:
-            model: gpt-4.1-nano
-            temperature: 0.2
-            seed: 123
+        pipeline: canary
+        phases:
+            main:
+                client:
+                    client_type: ollama #openai
+                    #timeout: 20
 
-        agent_info:
-            prompt_settings:
-                base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/canary_prompt.yaml
-            tools:
-                - ask_favog
-            max_iterations: 5
-            tool_interface: "openai"
+                model_info:
+                    model: gemma3:27b #gpt-4.1-nano
+                    temperature: 0.02 #0.2
+                    #seed: 123
 
-questions: $HERACLES_AGENTS_PATH/examples/questions/canary_questions.yaml
+                agent_info:
+                    prompt_settings:
+                        base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/canary_prompt.yaml
+                    tools:
+                        - name: calculator
+                        - name: ask_favog
+                    max_iterations: 5
+                    tool_interface: custom #openai
+
+        questions: $HERACLES_AGENTS_PATH/examples/questions/canary_questions.yaml

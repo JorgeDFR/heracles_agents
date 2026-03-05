@@ -13,8 +13,7 @@ configurations:
                     #timeout: 20
 
                 model_info:
-                    #model: claude-3-haiku
-                    model: claude-sonnet-4-0
+                    model: claude-sonnet-4-0 #claude-3-haiku
                     temperature: 0.2
                     seed: 123
 
@@ -28,8 +27,7 @@ configurations:
                           bound_args:
                               dsgdb_conf:
                                   dsg_interface_type: heracles
-                                  uri: "neo4j://127.0.0.1:7688"
-                                  n_object_verification: 314
+                                  uri: neo4j://neo4j:7683
 
                     tool_interface: anthropic
                     max_iterations: 6

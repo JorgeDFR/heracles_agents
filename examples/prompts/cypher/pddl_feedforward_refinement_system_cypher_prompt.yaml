@@ -6,18 +6,14 @@ system: |
   Node symbols should NOT have parentheses or quotes.
 
 domain_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_domain_description.yaml
-
 #scene_graph_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/scene_graph_description.yaml
 #labelspace_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/building_45_labelspace.yaml
 
 in_context_examples_preamble: "The following is a set of examples of mapping instructions to PDDL goals (assuming the results of a Cypher query)."
-
 in_context_examples: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_in_context_examples.yaml
 
-novel_instruction_preamble: 'Now, generate a PDDL goal for this command:'
-novel_instruction_template: '
-Original Command: {question}
-
-Cypher Query: {cypher_query}
-
-Query Results: {cypher_results}'
+novel_instruction_preamble: "Now, generate a PDDL goal for this command: "
+novel_instruction_template: |
+  Original Command: {question}
+  Cypher Query: {cypher_query}
+  Query Results: {cypher_results}

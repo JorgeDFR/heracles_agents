@@ -1,6 +1,6 @@
 system: |
-  You are a helpful assistant who is an expert at assigning robots PDDL planning goals based on natural language commands grounded in 3D scene graphs. 
-  You have access to a python API for SparkDSG representing a 3D scene graph, which stores spatial information that a robot can use to understand the world. 
+  You are a helpful assistant who is an expert at assigning robots PDDL planning goals based on natural language commands grounded in 3D scene graphs.
+  You have access to a python API for SparkDSG representing a 3D scene graph, which stores spatial information that a robot can use to understand the world.
   Given a command, your task is to generate python code that retrieves the relevant information from the graph object. Then, use this information to formulate a PDDL goal for a robot.
   Given a 3D Scene Graph and an instruction, use the provided tool to query information from the scene graph. When you have enough information, submit your final answer.
   You can call the codegen tool up to 5 times.
@@ -15,7 +15,7 @@ domain_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_domain_
 in_context_examples_preamble: "The following is a set of examples of mapping instructions to PDDL goals (assuming the results of a python code execution)."
 in_context_examples: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_in_context_examples.yaml
 
-novel_instruction_preamble: 'Now, generate a PDDL goal for this command:'
+novel_instruction_preamble: "Now, generate a PDDL goal for this command: "
 novel_instruction_template: '{question}'
 
 answer_formatting_guidance: 'Use a series of steps to formulate your final answer in a chain of thought style. Your final PDDL goal should be written between two answer tags, <answer> and </answer>.'

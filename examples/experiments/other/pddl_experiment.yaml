@@ -1,7 +1,7 @@
 metadata: {}
 configurations:
 
-    agentic-cypher-qa:
+    agentic-cypher-pddl:
         dsg_interface:
             dsg_interface_type: none
 
@@ -9,21 +9,19 @@ configurations:
         phases:
             main:
                 client:
-                    client_type: bedrock
+                    client_type: openai
+                    # auth key is supplied by HERACLES_OPENAI_API_KEY
                     timeout: 20
 
                 model_info:
-                    model: bedrock_claude-3-haiku
-                    #model: bedrock_claude-4-sonnet
-                    #model: bedrock_claude-opus-4-1
-                    temperature: 0.2
+                    model: gpt-5-nano
+                    temperature: 1.0
                     seed: 123
 
                 agent_info:
                     prompt_settings:
-                        base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/cypher/agent_system_cypher_prompt_full_info.yaml
-                        output_type: SLDP
-                        sldp_answer_type_hint: true
+                        base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/cypher/pddl_agent_system_cypher_prompt.yaml
+                        output_type: PDDL
                     tools:
                         - name: run_cypher_query
                           bound_args:
@@ -31,7 +29,7 @@ configurations:
                                   dsg_interface_type: heracles
                                   uri: "neo4j://127.0.0.1:7687"
 
-                    tool_interface: custom
+                    tool_interface: openai
                     max_iterations: 6
 
-        questions: $HERACLES_AGENTS_PATH/src/heracles_agents/questions/dsg_qa/evaluation_questions.yaml
+        questions: $HERACLES_AGENTS_PATH/examples/questions/pddl_questions.yaml

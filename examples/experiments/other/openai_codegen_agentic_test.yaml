@@ -1,5 +1,6 @@
 metadata: {}
 configurations:
+
     python-agentic:
         dsg_interface:
             dsg_interface_type: python
@@ -10,7 +11,6 @@ configurations:
             dsg_api_examples: true
 
         pipeline: agentic
-        questions: $HERACLES_AGENTS_PATH/src/heracles_agents/questions/westpoint_practice/pddl_questions.yaml
         phases:
             main:
                 client:
@@ -39,5 +39,7 @@ configurations:
                                 dsg_api_descriptions: true
                                 dsg_api_examples: true
 
-                    max_iterations: 5
                     tool_interface: openai
+                    max_iterations: 5
+
+        questions: $HERACLES_AGENTS_PATH/examples/questions/pddl_questions.yaml

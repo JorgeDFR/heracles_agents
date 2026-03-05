@@ -9,13 +9,13 @@ configurations:
         phases:
             main:
                 client:
-                    client_type: ollama
-                    #timeout: 20
+                    client_type: bedrock
+                    timeout: 20
 
                 model_info:
-                    model: gemma3:27b #llama3.1
-                    temperature: 0.02
-                    #seed: 123
+                    model: bedrock_claude-3-haiku #bedrock_claude-4-sonnet #bedrock_claude-opus-4-1
+                    temperature: 0.2
+                    seed: 123
 
                 agent_info:
                     prompt_settings:

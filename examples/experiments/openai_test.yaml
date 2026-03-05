@@ -27,10 +27,9 @@ configurations:
                           bound_args:
                               dsgdb_conf:
                                   dsg_interface_type: heracles
-                                  uri: "neo4j://127.0.0.1:7687"
-                                  n_object_verification: 314
+                                  uri: neo4j://neo4j:7683
 
                     tool_interface: custom
                     max_iterations: 6
 
-        questions: $HERACLES_AGENTS_PATH/src/heracles_agents/questions/westpoint_practice/qa_questions.yaml
+        questions: $HERACLES_AGENTS_PATH/examples/questions/qa_questions.yaml

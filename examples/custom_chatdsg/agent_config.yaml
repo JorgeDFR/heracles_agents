@@ -1,0 +1,25 @@
+---
+client:
+  client_type: ollama
+  #timeout: 20
+model_info:
+  model: gemma3:27b
+  temperature: 0.02
+  #seed: 123
+agent_info:
+  prompt_settings:
+    base_prompt: agent_prompt.yaml
+  tools:
+    - name: run_cypher_query
+      bound_args:
+        dsgdb_conf:
+          dsg_interface_type: heracles
+          uri: neo4j://$ADT4_HERACLES_IP:$ADT4_HERACLES_PORT
+    # - name: send_multirobot_pddl_goal
+    #   bound_args:
+    #     planner_topic: /hilbert/omniplanner_node/multirobot_region_rearrange_objects_pddl/pddl_goal
+    # - name: visualize_objects
+    #   bound_args:
+    #     viz_topic: /viz_objects_marker_array
+  tool_interface: custom #ollama
+  max_iterations: 6
