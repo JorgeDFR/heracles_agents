@@ -11,6 +11,7 @@ from heracles_agents.llm_interface import (
     AgentSequence,
     AnalyzedQuestion,
     AnalyzedQuestions,
+    QuestionAnalysis,
     EvalQuestion,
     LlmAgent,
     QuestionAnalysis,
@@ -25,11 +26,8 @@ def generate_prompt(
     question: EvalQuestion,
     agent_config: LlmAgent,
     task_state_context: dict[str] = {},
-    api_prompt: str = None,
 ):
     prompt = copy.deepcopy(agent_config.agent_info.prompt_settings.base_prompt)
-    if api_prompt:
-        prompt.set_api_prompt(api_prompt)
     if agent_config.agent_info.tool_interface == "custom":
         prompt.tool_description = "\n".join(
             [t.to_custom() for t in agent_config.agent_info.tools.values()]
@@ -52,20 +50,15 @@ def generate_prompt(
     return prompt
 
 
-def agentic_pipeline(exp):
+def canary_pipeline(exp):
     analyzed_questions = []
-    api_string = None
-    if exp.dsg_interface.dsg_interface_type == "python":
-        api_string = exp.dsg_interface.get_dsg_api_prompt()
 
     for question in exp.questions:
         try:
             logger.info(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["main"])
 
-            prompt = generate_prompt(
-                question, exp.phases["main"], api_prompt=api_string
-            )
+            prompt = generate_prompt(question, exp.phases["main"])
             logger.info(f"\nLLM Prompt: {prompt}\n")
 
             cxt.initialize_agent(prompt)
@@ -78,7 +71,7 @@ def agentic_pipeline(exp):
             logger.info(f"\n\nCorrect? {correct}\n\n")
 
             agent_sequence = AgentSequence(
-                description="cypher-agent", responses=cxt.get_agent_responses()
+                description="tool-calling-agent", responses=cxt.get_agent_responses()
             )
 
             analysis = QuestionAnalysis(
@@ -115,14 +108,14 @@ def agentic_pipeline(exp):
 
 main_phase = PipelinePhase(
     name="main",
-    description="Use tools to reason about question, and then to submit final answer.",
+    description="Main canary phase"
 )
 
 d = PipelineDescription(
-    name="agentic",
-    description="Agentic pipeline for 3D scene graphs",
+    name="canary",
+    description="For initial testing",
     phases=[main_phase],
-    function=agentic_pipeline,
+    function=canary_pipeline,
 )
 
 register_pipeline(d)

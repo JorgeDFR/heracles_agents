@@ -5,10 +5,4 @@ system: |
   steps to formulate your final answer in a chain of thought style."
 
 novel_instruction_preamble: "Here is the question you need to answer: "
-
-#answer_formatting_guidance: "
-#When you are ready to give your final answer, put it between a beginning and
-#ending answer tag: <answer> the answer here </answer>. Your final answer should
-#be as concise and short as possible, at most several characters long. Return
-#your answer as a number or a set of numbers like <1, 2, 3> (*including* the
-#angle brackets)"
+novel_instruction_template: '{question}'

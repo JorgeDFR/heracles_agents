@@ -1,33 +1,36 @@
 questions:
+  - uid: 0
+    name: No tool call necessary
+    question: What is 1 + 1?
+    solution: "2"
+    correctness_comparator:
+      comparison_type: SLDP
+      relation: equal
+    tags: []
 
-    - name: "No tool call necessary"
-      uid: 0
-      question: "What is 1 + 1?"
-      solution: "2"
-      correctness_comparator:
-        comparison_type: SLDP
-        relation: "equal"
+  - uid: 1
+    name: Direct Query
+    question: How many factories should my company build?
+    solution: "6"
+    correctness_comparator:
+      comparison_type: SLDP
+      relation: equal
+    tags: []
 
-    - name: "Direct Query"
-      uid: 1
-      question: "How many factories should my company build?"
-      solution: "6"
-      correctness_comparator:
-        comparison_type: SLDP
-        relation: "equal"
+  - uid: 2
+    name: Post-query reasoning
+    question: What is one plus the number of sports that are played in the Land of Gorch?
+    solution: "5"
+    correctness_comparator:
+      comparison_type: SLDP
+      relation: equal
+    tags: []
 
-    - name: "Post-query reasoning"
-      uid: 2
-      question: "What is one plus the number of sports that are played in the Land of Gorch?"
-      solution: "5"
-      correctness_comparator:
-        comparison_type: SLDP
-        relation: "equal"
-
-    - name: "Multi-query"
-      uid: 3
-      question: "What is the optimal number of meals per day to improve my personal life? Also, how many sports should I take up?"
-      solution: <4, 7>
-      correctness_comparator:
-        comparison_type: SLDP
-        relation: "equal"
+  - uid: 3
+    name: Multi-query
+    question: What is the optimal number of meals per day to improve my personal life? Also, how many sports should I take up?
+    solution: <4, 7>
+    correctness_comparator:
+      comparison_type: SLDP
+      relation: equal
+    tags: []
