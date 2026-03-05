@@ -6,7 +6,7 @@ questions:
     solution: (visited-object O79)
     correctness_comparator:
       comparison_type: PDDL
-      elation: equal
+      relation: equal
     tags: [direct-symbol]
 
   - uid: 22A

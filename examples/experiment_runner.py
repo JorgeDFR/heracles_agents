@@ -9,11 +9,14 @@ from heracles_agents.summarize_results import display_experiment_results
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, force=True)
 
-experiment_fn = "experiments/canary_experiment.yaml"
-# experiment_fn = "experiments/ollama_test.yaml"
-# experiment_fn = "experiments/openai_test.yaml"
-# experiment_fn = "experiments/anthropic_test.yaml"
-# experiment_fn = "experiments/bedrock_test.yaml"
+# experiment_fn = "experiments/canary_experiment.yaml"
+# experiment_fn = "experiments/cypher_experiment.yaml"
+experiment_fn = "experiments/pddl_experiment.yaml"
+
+# experiment_fn = "experiments/tests/ollama_test.yaml"
+# experiment_fn = "experiments/tests/openai_test.yaml"
+# experiment_fn = "experiments/tests/anthropic_test.yaml"
+# experiment_fn = "experiments/tests/bedrock_test.yaml"
 
 # Load experiment YAML
 with open(experiment_fn, "r") as fo:

@@ -346,20 +346,20 @@ Please format your response according to the SLDP Equality Language:
 ## SLDP Equality Language
 
 To evaluate if an answer is correct, we need to define a sense of equality.
-This is rather tricky, because there are different senses in which things can
-be equal.
+This is rather tricky, because there are different senses in which things can be equal.
 
-We need to handle Lists, Sets, Dictionaries, and Points.  Lists are equal if
-each element is equal, sets A and B are equal if A ⊆ B and B ⊆ A, Dictionaries
-are equal if the sets of their keys are equal and the value for each key
-matches between dictionaries, and two points are equal if they are  within some
-tolerance. Of course primitive numbers and strings can also be compared for
-equality. We support arbitrary compositions of these containers.
+We need to handle Lists, Sets, Dictionaries, and Points.
+Lists are equal if each element is equal.
+Sets A and B are equal if A ⊆ B and B ⊆ A.
+Dictionaries are equal if the sets of their keys are equal and the value for each key matches between dictionaries.
+Two points are equal if they are within some tolerance.
+Of course primitive numbers and strings can also be compared for equality.
+We support arbitrary compositions of these containers.
 
-We expect nodes in the graph to be represented without any parentheses. For example O(1) should be represented as O1.
+We expect nodes in the graph to be represented without any parentheses.
+For example O(1) should be represented as O1.
 We also expect no additional information than what is explicitly asked for in the question.
-E.g., if the question asks for a list of node IDs, the answer should be a list of node IDs and not a list of nodes with their properties
-or if the question asks for locations a list of points should be provided and not a list of nodes with their locations.
+E.g., if the question asks for a list of node IDs, the answer should be a list of node IDs and not a list of nodes with their properties or if the question asks for locations a list of points should be provided and not a list of nodes with their locations.
 
 ### Syntax
 
@@ -381,8 +381,7 @@ def get_sldp_answer_tag_text():
     return """
 ### Denoting Final Answer:
 
- Format your final answer (*not* any intermediate tool calls) as an SLDP
- expression wrapped between <answer> and </answer> tags, such as
- <answer><1,2,3></answer>. Only a single pair of answer tags should appear in
- your solution.
- """
+Format your final answer (*not* any intermediate tool calls) as an SLDP expression wrapped between the <answer> and </answer> tags (XML-style format).
+Example: <answer> <1,2,3> </answer>
+Only a single pair of answer tags should appear in your solution.
+"""

@@ -42,7 +42,7 @@ def generate_prompt(
         print(ex)
         raise ex
 
-    prompt.answer_semantic_guidance = "Make your answer as concise as possible"
+    prompt.answer_semantic_guidance = "Make your answer as concise as possible."
     prompt.answer_formatting_guidance = get_answer_formatting_guidance(
         agent_config, question
     )
@@ -71,7 +71,7 @@ def canary_pipeline(exp):
             logger.info(f"\n\nCorrect? {correct}\n\n")
 
             agent_sequence = AgentSequence(
-                description="tool-calling-agent", responses=cxt.get_agent_responses()
+                description="canary-agent", responses=cxt.get_agent_responses()
             )
 
             analysis = QuestionAnalysis(

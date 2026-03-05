@@ -3,7 +3,7 @@ system: |
   You have access to a database representing a 3D scene graph, which stores spatial information that a robot can use to understand the world.
   Given a command, your task is to generate a Cypher query that queries the relevant information from the database. Then, use this information to formulate a PDDL goal for a robot.
   Given a 3D Scene Graph and an instruction, use the provided tool to query information from the scene graph. When you have enough information, submit your final answer.
-  You can call the cypher query tool up to 5 times.
+  You can call the Cypher query tool up to 5 times.
   Explain your reasoning before each Cypher query.
   When producing a final answer, follow the format and be concise.
 
@@ -12,11 +12,14 @@ scene_graph_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/scene_g
 labelspace_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/building_45_labelspace.yaml
 domain_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_domain_description.yaml
 
-in_context_examples_preamble: "The following is a set of examples of mapping instructions to PDDL goals (assuming the results of a Cypher query)."
-
+in_context_examples_preamble: "The following is a set of examples of mapping instructions to PDDL goals (assuming the results of Cypher query tool calls)."
 in_context_examples: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_in_context_examples.yaml
 
 novel_instruction_preamble: "Now, generate a PDDL goal for this command: "
-novel_instruction_template: '{question}'
+novel_instruction_template: "{question}"
 
-answer_formatting_guidance: 'Use a series of steps to formulate your final answer in a chain of thought style. Your final PDDL goal should be written between two answer tags, <answer> and </answer>.'
+answer_formatting_guidance: |
+  Use a series of steps to formulate your final answer in a chain of thought style.
+  Each message must contain ether a tool call (to retrive more information) or the final answer (PDDL goal) in a XML-style format.
+  Example 1: <tool> tool_name(arg1=1,arg2=2,arg3='3') </tool>
+  Example 2: <answer> (visited-place P100) </answer>

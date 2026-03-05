@@ -15,4 +15,10 @@ labelspace_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/building
 interface_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/cypher_interface_description.yaml
 
 novel_instruction_preamble: "Now, use cypher queries (using the cypher tool) to answer this question: "
-novel_instruction_template: '{question}'
+novel_instruction_template: "{question}"
+
+answer_formatting_guidance: |
+  Use a series of steps to formulate your final answer in a chain of thought style.
+  Each message must contain ether a tool call (to retrive more information) or the final answer in a XML-style format.
+  Example 1: <tool> tool_name(arg1=1,arg2=2,arg3='3') </tool>
+  Example 2: <answer> <1,2,3> </answer>

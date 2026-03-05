@@ -9,14 +9,11 @@ configurations:
         phases:
             main:
                 client:
-                    client_type: openai
-                    # auth key is supplied by HERACLES_OPENAI_API_KEY
-                    timeout: 20
+                    client_type: ollama
 
                 model_info:
-                    model: gpt-5-nano
-                    temperature: 1.0
-                    seed: 123
+                    model: gemma3:27b
+                    temperature: 0.02
 
                 agent_info:
                     prompt_settings:
@@ -27,9 +24,8 @@ configurations:
                           bound_args:
                               dsgdb_conf:
                                   dsg_interface_type: heracles
-                                  uri: "neo4j://127.0.0.1:7687"
-
-                    tool_interface: openai
+                                  uri: neo4j://neo4j:7683
+                    tool_interface: custom
                     max_iterations: 6
 
         questions: $HERACLES_AGENTS_PATH/examples/questions/pddl_questions.yaml

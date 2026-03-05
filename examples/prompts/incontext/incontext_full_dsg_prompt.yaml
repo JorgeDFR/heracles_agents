@@ -14,31 +14,32 @@ scene_graph_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/scene_g
 labelspace_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/building_45_labelspace.yaml
 interface_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/in_context_description.yaml
 
-in_context_examples_preamble: "Here are some examples of mapping from natural language instructions to grounded objects. Each example uses the 3D scene graph below. Note that this 3D scene graph is just for these examples and you should NOT use this when answering the new instruction.
-<Example 3D Scene Graph>
-Objects:
-- (id=O0, type=tree, pos=(-3.14,1.13,0.1), parent_places={'p4'})
-- (id=O1, type=vehicle, pos=(3.34,3.53,0.1), parent_places={'p0'})
-- (id=O2, type=door, pos=(3.33,3.48,0.2), parent_places={'p4'})
-- (id=O3, type=tree, pos=(4.47,-4.72,-0.1), parent_places={'p5'})
-- (id=O4, type=vehicle, pos=(-2.51,6.63, 0.2), parent_places={'p3'})
-- (id=O5, type=boat, pos=(1.34,3.28,-0.2), parent_places={'p2'})
-- (id=O6, type=seating, pos=(1.37,3.03,0.01), parent_places={'p2'})
-- (id=O7, type=tree, pos=(9.10,-2.01,0.04), parent_places={'p6'})
-Places:
-- (id=p0, siblings={'p1','p4'}, parent_rooms={'R0'})
-- (id=p1, siblings={'p0','p4'}, parent_rooms={'R0'})
-- (id=p2, siblings={'p3'}, parent_rooms={'R1'})
-- (id=p3, siblings={'p2'}, parent_rooms={'R1'})
-- (id=p4, siblings={'p0','p1'}, parent_rooms={'R0'})
-- (id=p5, siblings={'p6'}, parent_rooms={'R2'})
-- (id=p6, siblings={'p5'}, parent_rooms={'R2'})
-Rooms:
-- (id=R0, type=parking_lot, pos=(1.17,2.71,0.01), siblings=none)
-- (id=R1, type=dock, pos=(0.67,4.31,0.09), siblings=none)
-- (id=R2, type=courtyard, pos=(6.79,2.31,-0.01), siblings=none)
-</Example 3D Scene Graph>
-"
+in_context_examples_preamble: |
+  Here are some examples of mapping from natural language instructions to grounded objects. Each example uses the 3D scene graph below. Note that this 3D scene graph is just for these examples and you should NOT use this when answering the new instruction.
+
+  <Example 3D Scene Graph>
+    Objects:
+    - (id=O0, type=tree, pos=(-3.14,1.13,0.1), parent_places={'p4'})
+    - (id=O1, type=vehicle, pos=(3.34,3.53,0.1), parent_places={'p0'})
+    - (id=O2, type=door, pos=(3.33,3.48,0.2), parent_places={'p4'})
+    - (id=O3, type=tree, pos=(4.47,-4.72,-0.1), parent_places={'p5'})
+    - (id=O4, type=vehicle, pos=(-2.51,6.63, 0.2), parent_places={'p3'})
+    - (id=O5, type=boat, pos=(1.34,3.28,-0.2), parent_places={'p2'})
+    - (id=O6, type=seating, pos=(1.37,3.03,0.01), parent_places={'p2'})
+    - (id=O7, type=tree, pos=(9.10,-2.01,0.04), parent_places={'p6'})
+    Places:
+    - (id=p0, siblings={'p1','p4'}, parent_rooms={'R0'})
+    - (id=p1, siblings={'p0','p4'}, parent_rooms={'R0'})
+    - (id=p2, siblings={'p3'}, parent_rooms={'R1'})
+    - (id=p3, siblings={'p2'}, parent_rooms={'R1'})
+    - (id=p4, siblings={'p0','p1'}, parent_rooms={'R0'})
+    - (id=p5, siblings={'p6'}, parent_rooms={'R2'})
+    - (id=p6, siblings={'p5'}, parent_rooms={'R2'})
+    Rooms:
+    - (id=R0, type=parking_lot, pos=(1.17,2.71,0.01), siblings=none)
+    - (id=R1, type=dock, pos=(0.67,4.31,0.09), siblings=none)
+    - (id=R2, type=courtyard, pos=(6.79,2.31,-0.01), siblings=none)
+  </Example 3D Scene Graph>
 
 in_context_examples:
   - user: "What is the most common object type?"

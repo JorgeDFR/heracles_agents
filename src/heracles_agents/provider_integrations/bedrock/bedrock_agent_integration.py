@@ -26,7 +26,11 @@ def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[BedrockClientConfi
 
     if agent.agent_info.tool_interface == "custom":
         # TODO: centralize custom tool prompt logic
-        tool_command = "The following tools can be used to help formulate your answer. To call a tool, response with the function name and arguments between a tool tag, like this: <tool> my_function(arg1=1,arg2=2,arg3='3') </tool>. Use a single tool call per message. Do not <answer> and tool call in the same message\n"
+        tool_command = """The following tools can be used to help formulate your answer.
+To call a tool, responde with the tool name and arguments between the <tool> and </tool> tags (XML-style format).
+Example: <tool> tool_name(arg1=1,arg2=2,arg3='3') </tool>
+You can use tool calls multiple times in a conversation, however only a single tool call per message.
+"""
         for tool in agent.agent_info.tools.values():
             d = tool.to_custom()
             tool_command += d
