@@ -1,10 +1,10 @@
 metadata: {}
 configurations:
 
-    cypher-feedforward-pddl:
+    feedforward-cypher-pddl:
         dsg_interface:
             dsg_interface_type: heracles
-            uri: "neo4j://127.0.0.1:7687"
+            uri: neo4j://neo4j:7683
 
         pipeline: feedforward_cypher
         phases:

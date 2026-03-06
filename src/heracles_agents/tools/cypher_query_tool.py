@@ -38,7 +38,7 @@ def query_db(cypher_string, dsgdb_conf: HeraclesDsgInterface = None):
 # Probably need to have the experiment runner automatically insert the experiment description into the tool call?
 cypher_tool = ToolDescription(
     name="run_cypher_query",
-    description="An interface for running Cypher queries on a Neo4j database containing a 3D Scene Graph. Example usage: <tool> run_cypher_query(cypher_string='MATCH (o:Object) RETURN count(o) AS object_count') </tool>",
+    description="An interface for running Cypher queries on a Neo4j database containing a 3D Scene Graph.",
     parameters=[
         FunctionParameter("cypher_string", str, "Your Cypher query"),
     ],

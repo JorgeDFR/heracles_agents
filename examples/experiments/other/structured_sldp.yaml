@@ -1,16 +1,16 @@
 metadata: {}
 configurations:
 
-    cypher-feedforward-qa:
+    feedforward-cypher-qa:
         dsg_interface:
             dsg_interface_type: heracles
-            uri: "neo4j://127.0.0.1:7687"
-        pipeline: feedforward_cypher_qa
+            uri: neo4j://neo4j:7683
+
+        pipeline: feedforward_cypher
         phases:
             generate-cypher:
                 client:
                     client_type: openai
-                    # auth key is supplied by HERACLES_OPENAI_API_KEY
                     timeout: 20
 
                 model_info:

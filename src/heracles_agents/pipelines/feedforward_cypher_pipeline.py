@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 def generate_prompt(
-    question: EvalQuestion, agent_config: LlmAgent, task_state_context: dict[str] = {}
+    question: EvalQuestion,
+    agent_config: LlmAgent,
+    task_state_context: dict[str] = {}
 ):
     prompt = copy.deepcopy(agent_config.agent_info.prompt_settings.base_prompt)
     if agent_config.agent_info.tool_interface == "custom":
@@ -50,12 +52,14 @@ def generate_prompt(
 
 def feedforward_cypher(exp):
     analyzed_questions = []
+
     for question in exp.questions:
         try:
             logger.info(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["generate-cypher"])
 
             prompt = generate_prompt(question, exp.phases["generate-cypher"])
+            #logger.info(f"\nLLM Prompt (Generate Cypher): {prompt}\n")
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()
@@ -74,6 +78,7 @@ def feedforward_cypher(exp):
                 exp.phases["refine"],
                 {"cypher_results": query_result, "cypher_query": answer},
             )
+            #logger.info(f"\nLLM Prompt (Refine): {refinement_prompt}\n")
 
             cxt2.initialize_agent(refinement_prompt)
             success, answer = cxt2.run()
@@ -93,13 +98,14 @@ def feedforward_cypher(exp):
 
             n_input_tokens = cxt.initial_input_tokens + cxt2.initial_input_tokens
             n_output_tokens = cxt.total_output_tokens + cxt2.total_output_tokens
+            n_tool_calls = cxt.n_tool_calls + cxt2.n_tool_calls
 
             analysis = QuestionAnalysis(
                 correct=correct,
                 valid_answer_format=valid_format,
                 input_tokens=n_input_tokens,
                 output_tokens=n_output_tokens,
-                n_tool_calls=cxt.n_tool_calls + cxt2.n_tool_calls,  # Should be 0...
+                n_tool_calls=n_tool_calls,  # Should be 0...
             )
 
         except Exception as ex:
@@ -126,9 +132,11 @@ def feedforward_cypher(exp):
 cypher_phase = PipelinePhase(
     name="generate-cypher", description="Map question to Cypher query"
 )
+
 refine_phase = PipelinePhase(
     name="refine", description="Map result of cypher query to final answer"
 )
+
 d = PipelineDescription(
     name="feedforward_cypher",
     description="Single cypher query, then refinement",
@@ -137,22 +145,3 @@ d = PipelineDescription(
 )
 
 register_pipeline(d)
-
-if __name__ == "__main__":
-    import yaml
-
-    from heracles_agents.experiment_definition import ExperimentConfiguration
-    from heracles_agents.summarize_results import display_experiment_results
-
-    logging.basicConfig(level=logging.INFO)
-
-    with open("experiments/dsg_feedforward_experiment.yaml", "r") as fo:
-        yml = yaml.safe_load(fo)
-    experiment = ExperimentConfiguration(**yml)
-    logger.debug(f"Loaded experiment configuration: {experiment}")
-
-    aqs = feedforward_cypher(experiment)
-    with open("output/dsgdb_feedforward_out.yaml", "w") as fo:
-        fo.write(yaml.dump(aqs.model_dump()))
-
-    display_experiment_results(aqs)

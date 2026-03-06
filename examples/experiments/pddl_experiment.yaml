@@ -26,6 +26,6 @@ configurations:
                                   dsg_interface_type: heracles
                                   uri: neo4j://neo4j:7683
                     tool_interface: custom
-                    max_iterations: 6
+                    max_iterations: 5
 
         questions: $HERACLES_AGENTS_PATH/examples/questions/pddl_questions.yaml

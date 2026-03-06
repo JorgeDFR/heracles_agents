@@ -3,8 +3,8 @@ client:
   client_type: ollama
   #timeout: 20
 model_info:
-  model: gemma3:27b
-  temperature: 0.02
+  model: qwen3.5:27b
+  temperature: 0.2
   #seed: 123
 agent_info:
   prompt_settings:
@@ -21,5 +21,5 @@ agent_info:
     # - name: visualize_objects
     #   bound_args:
     #     viz_topic: /viz_objects_marker_array
-  tool_interface: custom #ollama
+  tool_interface: ollama
   max_iterations: 6

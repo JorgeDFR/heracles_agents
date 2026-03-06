@@ -1,7 +1,7 @@
 metadata: {}
 configurations:
 
-    python-feedforward:
+    feedforward-python-qa:
         dsg_interface:
             dsg_interface_type: python
             dsg_filepath: $HERACLES_AGENTS_PATH/examples/scene_graphs/west_point_fused_map_wregions_labelspace_resaved.json
@@ -15,7 +15,6 @@ configurations:
             generate-code:
                 client:
                     client_type: openai
-                    # auth key is supplied by HERACLES_ANTHROPIC_API_KEY
                     timeout: 20
 
                 model_info:

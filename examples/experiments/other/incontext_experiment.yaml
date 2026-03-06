@@ -1,7 +1,7 @@
 metadata: {}
 configurations:
 
-    in_context_qa_openai:
+    feedforward-in_context-qa:
         dsg_interface:
             dsg_interface_type: in_context
             dsg_filepath: $HERACLES_AGENTS_PATH/examples/scene_graphs/west_point_fused_map_wregions_labelspace.json

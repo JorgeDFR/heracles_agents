@@ -66,7 +66,7 @@ def agentic_pipeline(exp):
             prompt = generate_prompt(
                 question, exp.phases["main"], api_prompt=api_string
             )
-            logger.info(f"\nLLM Prompt: {prompt}\n")
+            #logger.info(f"\nLLM Prompt: {prompt}\n")
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()

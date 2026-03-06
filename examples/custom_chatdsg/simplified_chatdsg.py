@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import argparse
-import logging
 import os
-import sys
+import copy
+import yaml
+import logging
+import argparse
 
 import spark_dsg
-import yaml
 from heracles.dsg_utils import summarize_dsg
 from heracles.utils import load_dsg_to_db
 
@@ -20,8 +20,13 @@ def new_user_message(text):
     return [{"role": "user", "content": text}]
 
 
-def generate_initial_prompt(agent: LlmAgent):
-    prompt = agent.agent_info.prompt_settings.base_prompt
+def generate_initial_prompt(agent_config: LlmAgent):
+    prompt = copy.deepcopy(agent_config.agent_info.prompt_settings.base_prompt)
+    if agent_config.agent_info.tool_interface == "custom":
+        prompt.tool_description = "\n".join(
+            [t.to_custom() for t in agent_config.agent_info.tools.values()]
+        )
+
     return prompt
 
 
@@ -87,7 +92,7 @@ def main():
     agent = LlmAgent(**yml)
 
     # Initialize conversation
-    messages = generate_initial_prompt(agent).to_openai_json(
+    messages = generate_initial_prompt(agent).to_anthropic_json(
         "Now you will interact with the user:"
     )
 

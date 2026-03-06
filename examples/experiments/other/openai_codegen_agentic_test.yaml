@@ -1,7 +1,7 @@
 metadata: {}
 configurations:
 
-    python-agentic:
+    agentic-python-pddl:
         dsg_interface:
             dsg_interface_type: python
             dsg_filepath: $HERACLES_AGENTS_PATH/examples/scene_graphs/west_point_fused_map_wregions_labelspace.json
@@ -15,7 +15,6 @@ configurations:
             main:
                 client:
                     client_type: openai
-                    # auth key is supplied by HERACLES_ANTHROPIC_API_KEY
                     timeout: 20
 
                 model_info:
@@ -27,7 +26,6 @@ configurations:
                     prompt_settings:
                         base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/codegen/pddl_agent_system_codegen_prompt.yaml
                         output_type: PDDL
-                        #sldp_answer_type_hint: true
                     tools:
                         - name: codegen_execute
                           bound_args:
@@ -38,7 +36,6 @@ configurations:
                                 dsg_api_filepath: $HERACLES_AGENTS_PATH/examples/prompts/spark_dsg_api_prompt.yaml
                                 dsg_api_descriptions: true
                                 dsg_api_examples: true
-
                     tool_interface: openai
                     max_iterations: 5
 
