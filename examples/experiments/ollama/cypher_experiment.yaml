@@ -1,0 +1,32 @@
+metadata: {}
+configurations:
+
+    agentic-cypher-qa:
+        dsg_interface:
+            dsg_interface_type: none
+
+        pipeline: agentic
+        phases:
+            main:
+                client:
+                    client_type: ollama
+
+                model_info:
+                    model: gemma3:27b
+                    temperature: 0.02
+
+                agent_info:
+                    prompt_settings:
+                        base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/custom_ollama/qa_agentic_cypher_prompt.yaml
+                        output_type: SLDP
+                        sldp_answer_type_hint: true
+                    tools:
+                        - name: run_cypher_query
+                          bound_args:
+                              dsgdb_conf:
+                                  dsg_interface_type: heracles
+                                  uri: neo4j://$ADT4_HERACLES_IP:$ADT4_HERACLES_PORT
+                    tool_interface: custom
+                    max_iterations: 5
+
+        questions: $HERACLES_AGENTS_PATH/examples/questions/qa_questions.yaml

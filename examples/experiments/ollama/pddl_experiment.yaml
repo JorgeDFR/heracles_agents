@@ -1,0 +1,31 @@
+metadata: {}
+configurations:
+
+    agentic-cypher-pddl:
+        dsg_interface:
+            dsg_interface_type: none
+
+        pipeline: agentic
+        phases:
+            main:
+                client:
+                    client_type: ollama
+
+                model_info:
+                    model: gemma3:27b
+                    temperature: 0.02
+
+                agent_info:
+                    prompt_settings:
+                        base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/custom_ollama/pddl_agent_system_cypher_prompt.yaml
+                        output_type: PDDL
+                    tools:
+                        - name: run_cypher_query
+                          bound_args:
+                              dsgdb_conf:
+                                  dsg_interface_type: heracles
+                                  uri: neo4j://$ADT4_HERACLES_IP:$ADT4_HERACLES_PORT
+                    tool_interface: custom
+                    max_iterations: 5
+
+        questions: $HERACLES_AGENTS_PATH/examples/questions/pddl_questions.yaml

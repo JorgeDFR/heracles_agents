@@ -13,10 +13,6 @@ interface_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/cypher_in
 novel_instruction_preamble: "Now, generate a cypher query for this natural language query: "
 novel_instruction_template: "{question}"
 
-# answer_formatting_guidance: |
-#   Use a series of steps to formulate your final answer in a chain of thought style.
-#   Your final cypher query should be written as a string between two answer tags, <answer> and </answer>.
-
 answer_formatting_guidance: |
   Use the cypher tool to validate your cypher query before providing a final cypher query.
   If necessary call the cypher tool multiple times to refine the cypher query and correct possible errors.
