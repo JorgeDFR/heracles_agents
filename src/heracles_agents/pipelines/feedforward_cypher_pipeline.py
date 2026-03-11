@@ -30,7 +30,7 @@ def generate_prompt(
     prompt = copy.deepcopy(agent_config.agent_info.prompt_settings.base_prompt)
     if agent_config.agent_info.tool_interface == "custom":
         prompt.tool_description = "\n".join(
-            [t.to_custom() for t in agent_config.agent_info.tools]
+            [t.to_custom() for t in agent_config.agent_info.tools.values()]
         )
 
     try:
@@ -105,7 +105,7 @@ def feedforward_cypher(exp):
                 valid_answer_format=valid_format,
                 input_tokens=n_input_tokens,
                 output_tokens=n_output_tokens,
-                n_tool_calls=n_tool_calls,  # Should be 0...
+                n_tool_calls=n_tool_calls,
             )
 
         except Exception as ex:

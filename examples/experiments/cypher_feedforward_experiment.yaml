@@ -19,9 +19,14 @@ configurations:
                 agent_info:
                     prompt_settings:
                         base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/cypher/dsg_feedforward_cypher_prompt.yaml
-                    tools: []
-                    tool_interface: none
-                    max_iterations: 1
+                    tools:
+                        - name: run_cypher_query
+                          bound_args:
+                              dsgdb_conf:
+                                  dsg_interface_type: heracles
+                                  uri: neo4j://neo4j:7683
+                    tool_interface: custom
+                    max_iterations: 5
 
             refine:
                 client:
