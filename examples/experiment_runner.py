@@ -7,24 +7,24 @@ from heracles_agents.llm_interface import AnalyzedExperiment
 from heracles_agents.summarize_results import display_experiment_results
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, force=True)
+logging.basicConfig(level=logging.WARN, force=True)
 
 # List of experiment files
-experiment_fns = [
-    "experiments/ollama/canary_experiment.yaml",
-    "experiments/ollama/cypher_experiment.yaml",
-    "experiments/ollama/pddl_experiment.yaml",
-    "experiments/ollama/cypher_feedforward_experiment.yaml",
-    "experiments/ollama/pddl_feedforward_experiment.yaml",
-]
-
 # experiment_fns = [
-#     "experiments/openai/canary_experiment.yaml",
-#     "experiments/openai/cypher_experiment.yaml",
-#     "experiments/openai/pddl_experiment.yaml",
-#     "experiments/openai/cypher_feedforward_experiment.yaml",
-#     "experiments/openai/pddl_feedforward_experiment.yaml",
+#     "experiments/ollama/canary_experiment.yaml",
+#     "experiments/ollama/cypher_experiment.yaml",
+#     "experiments/ollama/pddl_experiment.yaml",
+#     "experiments/ollama/cypher_feedforward_experiment.yaml",
+#     "experiments/ollama/pddl_feedforward_experiment.yaml",
 # ]
+
+experiment_fns = [
+    "experiments/openai/canary_experiment.yaml",
+    "experiments/openai/cypher_experiment.yaml",
+    "experiments/openai/pddl_experiment.yaml",
+    "experiments/openai/cypher_feedforward_experiment.yaml",
+    "experiments/openai/pddl_feedforward_experiment.yaml",
+]
 
 # experiment_fns = [
 #     "experiments/tests/ollama_test.yaml"

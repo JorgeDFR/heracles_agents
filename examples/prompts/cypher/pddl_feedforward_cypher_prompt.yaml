@@ -15,4 +15,6 @@ novel_instruction_template: "{question}"
 
 answer_formatting_guidance: |
   Use a series of steps to formulate your final answer in a chain of thought style.
+  Use the cypher tool to validate your cypher query before providing a final cypher query.
+  If necessary call the cypher tool multiple times to refine the cypher query and correct possible errors.
   Your final cypher query should be written between two answer tags, <answer> and </answer>.

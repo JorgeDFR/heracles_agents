@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_token_encoder(model_name):
-    if model_name == "gpt-5":
+    if "gpt-5" in model_name:
         model_name = "gpt-5-latest"  # tiktoken is broken
     try:
         enc = tiktoken.encoding_for_model(model_name)

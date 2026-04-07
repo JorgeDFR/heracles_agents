@@ -39,7 +39,7 @@ class OpenaiClientConfig(BaseSettings):
                 tools=tools,
                 input=messages,
                 parallel_tool_calls=False,
-                reasoning={"effort": "minimal"},
+                reasoning={"effort": "low"},
             )
         else:
             response = self._client.responses.create(
