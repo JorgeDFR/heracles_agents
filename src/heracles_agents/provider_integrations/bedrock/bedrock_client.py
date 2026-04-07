@@ -13,7 +13,6 @@ model_name_to_bedrock_model_id = {
 
 class BedrockClientConfig(BaseSettings):
     client_type: Literal["bedrock"]
-    timeout: int
     _client: object = PrivateAttr()
 
     def __init__(self, **data):

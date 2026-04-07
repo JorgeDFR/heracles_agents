@@ -26,6 +26,5 @@ class AnthropicClientConfig(BaseSettings):
             tools=tools,
             messages=messages,
             max_tokens=4096,
-            # system=""
         )
         return messages

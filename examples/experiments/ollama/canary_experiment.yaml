@@ -12,8 +12,9 @@ configurations:
                     client_type: ollama
 
                 model_info:
-                    model: gemma3:27b
-                    temperature: 0.02
+                    model: gemma4:26b #gemma3:27b
+                    temperature: 0.2
+                    seed: 123
 
                 agent_info:
                     prompt_settings:
@@ -23,7 +24,7 @@ configurations:
                     tools:
                         - name: calculator
                         - name: ask_favog
-                    tool_interface: custom
+                    tool_interface: ollama #custom
                     max_iterations: 5
 
         questions: $HERACLES_AGENTS_PATH/examples/questions/canary_questions.yaml

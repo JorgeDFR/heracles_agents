@@ -59,7 +59,7 @@ def canary_pipeline(exp):
             cxt = AgentContext(exp.phases["main"])
 
             prompt = generate_prompt(question, exp.phases["main"])
-            logger.info(f"\nLLM Prompt: {prompt}\n")
+            #logger.info(f"\nLLM Prompt: {prompt}\n")
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()

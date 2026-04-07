@@ -9,52 +9,70 @@ from heracles_agents.summarize_results import display_experiment_results
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, force=True)
 
-# experiment_fn = "experiments/ollama/canary_experiment.yaml"
-# experiment_fn = "experiments/ollama/cypher_experiment.yaml"
-# experiment_fn = "experiments/ollama/pddl_experiment.yaml"
-experiment_fn = "experiments/ollama/cypher_feedforward_experiment.yaml"
+# List of experiment files
+experiment_fns = [
+    "experiments/ollama/canary_experiment.yaml",
+    "experiments/ollama/cypher_experiment.yaml",
+    "experiments/ollama/pddl_experiment.yaml",
+    "experiments/ollama/cypher_feedforward_experiment.yaml",
+    "experiments/ollama/pddl_feedforward_experiment.yaml",
+]
 
-# experiment_fn = "experiments/openai/canary_experiment.yaml"
-# experiment_fn = "experiments/openai/cypher_experiment.yaml"
-# experiment_fn = "experiments/openai/pddl_experiment.yaml"
-# experiment_fn = "experiments/openai/cypher_feedforward_experiment.yaml"
-# experiment_fn = "experiments/openai/pddl_feedforward_experiment.yaml"
+# experiment_fns = [
+#     "experiments/openai/canary_experiment.yaml",
+#     "experiments/openai/cypher_experiment.yaml",
+#     "experiments/openai/pddl_experiment.yaml",
+#     "experiments/openai/cypher_feedforward_experiment.yaml",
+#     "experiments/openai/pddl_feedforward_experiment.yaml",
+# ]
 
-# experiment_fn = "experiments/tests/ollama_test.yaml"
-# experiment_fn = "experiments/tests/openai_test.yaml"
-# experiment_fn = "experiments/tests/anthropic_test.yaml"
-# experiment_fn = "experiments/tests/bedrock_test.yaml"
+# experiment_fns = [
+#     "experiments/tests/ollama_test.yaml"
+#     "experiments/tests/openai_test.yaml"
+#     "experiments/tests/anthropic_test.yaml"
+#     "experiments/tests/bedrock_test.yaml"
+# ]
 
-# Load experiment YAML
-with open(experiment_fn, "r") as fo:
-    yml = yaml.safe_load(fo)
-
-experiment = ExperimentDescription(**yml)
-logger.debug(f"Loaded experiment: {experiment}")
-
-# Run experiment for each configuration
-results = {}
-for configuration_name, experiment_config in experiment.configurations.items():
-    logger.info(f"Testing configuration: {configuration_name}")
-    analyzed_questions = experiment_config.pipeline.function(experiment_config)
-
-    display_experiment_results(analyzed_questions)
-    results[configuration_name] = analyzed_questions
-
-# Aggregate results
-ae = AnalyzedExperiment(experiment_configurations=results)
-
-# Prepare output folder and file
+# Prepare base output folder
 script_dir = os.path.dirname(os.path.abspath(__file__))
-output_dir = os.path.join(script_dir, "..", "output")
-os.makedirs(output_dir, exist_ok=True)
+base_output_dir = os.path.join(script_dir, "..", "output")
+os.makedirs(base_output_dir, exist_ok=True)
 
-# Create a filename based on experiment name (sanitized)
-experiment_name_safe = os.path.splitext(os.path.basename(experiment_fn))[0].replace(" ", "_").lower()
-output_file = os.path.join(output_dir, f"{experiment_name_safe}_results.yaml")
+# Run all experiments
+for experiment_fn in experiment_fns:
+    logger.info(f"\n=== Running experiment: {experiment_fn} ===")
 
-# Write results to YAML
-with open(output_file, "w") as fo:
-    yaml.dump(ae.model_dump(), fo)
+    # Load experiment YAML
+    with open(experiment_fn, "r") as fo:
+        yml = yaml.safe_load(fo)
 
-logger.info(f"Experiment results saved to {output_file}")
+    experiment = ExperimentDescription(**yml)
+    logger.debug(f"Loaded experiment: {experiment}")
+
+    # Run experiment configurations
+    results = {}
+    for configuration_name, experiment_config in experiment.configurations.items():
+        logger.info(f"Testing configuration: {configuration_name}")
+        analyzed_questions = experiment_config.pipeline.function(experiment_config)
+
+        display_experiment_results(analyzed_questions)
+        results[configuration_name] = analyzed_questions
+
+    # Aggregate results
+    ae = AnalyzedExperiment(experiment_configurations=results)
+
+    # Create per-experiment output folder
+    parent_folder = os.path.basename(os.path.dirname(experiment_fn))
+    output_dir = os.path.join(base_output_dir, parent_folder)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create filename
+    experiment_name = os.path.splitext(os.path.basename(experiment_fn))[0] \
+        .replace(" ", "_").lower()
+    output_file = os.path.join(output_dir, f"{experiment_name}_results.yaml")
+
+    # Write results
+    with open(output_file, "w") as fo:
+        yaml.dump(ae.model_dump(), fo)
+
+    logger.info(f"Experiment results saved to {output_file}")

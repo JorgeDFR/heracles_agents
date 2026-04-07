@@ -10,11 +10,10 @@ configurations:
             main:
                 client:
                     client_type: ollama
-                    #timeout: 20
 
                 model_info:
-                    model: gemma3:27b #llama3.1
-                    temperature: 0.02
+                    model: gemma4:26b #llama3.1 | gemma3:27b
+                    temperature: 0.2
                     #seed: 123
 
                 agent_info:

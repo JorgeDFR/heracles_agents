@@ -10,12 +10,11 @@ configurations:
             main:
                 client:
                     client_type: anthropic
-                    #timeout: 20
 
                 model_info:
                     model: claude-sonnet-4-0 #claude-3-haiku
                     temperature: 0.2
-                    seed: 123
+                    #seed: 123
 
                 agent_info:
                     prompt_settings:
@@ -25,7 +24,7 @@ configurations:
                     tools:
                         - name: calculator
                         - name: ask_favog
-                    tool_interface: anthropic
+                    tool_interface: custom
                     max_iterations: 5
 
         questions: $HERACLES_AGENTS_PATH/examples/questions/canary_questions.yaml

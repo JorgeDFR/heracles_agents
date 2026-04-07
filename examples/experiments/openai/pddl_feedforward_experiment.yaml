@@ -16,7 +16,6 @@ configurations:
                 model_info:
                     model: gpt-4.1-mini
                     temperature: 0.2
-                    seed: 123
 
                 agent_info:
                     prompt_settings:

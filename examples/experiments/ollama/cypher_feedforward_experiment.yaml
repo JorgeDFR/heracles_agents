@@ -13,28 +13,25 @@ configurations:
                     client_type: ollama
 
                 model_info:
-                    model: gemma3:27b
-                    temperature: 0.02
+                    model: gemma4:26b
+                    temperature: 0.2
+                    seed: 123
 
                 agent_info:
                     prompt_settings:
-                        base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/custom_ollama/qa_feedforward_cypher_prompt.yaml
-                    tools:
-                        - name: run_cypher_query
-                          bound_args:
-                              dsgdb_conf:
-                                  dsg_interface_type: heracles
-                                  uri: neo4j://$ADT4_HERACLES_IP:$ADT4_HERACLES_PORT
-                    tool_interface: custom
-                    max_iterations: 5
+                        base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/cypher/qa_feedforward_cypher_prompt.yaml
+                    tools: []
+                    tool_interface: none
+                    max_iterations: 1
 
             refine:
                 client:
                     client_type: ollama
 
                 model_info:
-                    model: gemma3:27b
-                    temperature: 0.02
+                    model: gemma4:26b
+                    temperature: 0.2
+                    seed: 123
 
                 agent_info:
                     prompt_settings:
