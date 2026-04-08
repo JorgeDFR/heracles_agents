@@ -28,15 +28,16 @@ class OllamaClientConfig(BaseSettings):
                 f"response_format {response_format} not implemented for Ollama!"
             )
 
+        options = {"temperature": model_info.temperature}
+        if model_info.seed is not None:
+            options["seed"] = model_info.seed
+
         response: ChatResponse = self._chat_func(
             model=model_info.model,
             messages=messages,
             tools=tools,
             think=False, # TODO: Validate this hack -> Some models take to much time in the thinking process
-            options={
-                "temperature": model_info.temperature,
-                **({"seed": model_info.seed} if model_info.seed is not None else {}),
-            },
+            options=options,
         )
 
         return response

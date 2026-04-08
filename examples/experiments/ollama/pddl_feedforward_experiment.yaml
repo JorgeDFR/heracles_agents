@@ -26,7 +26,7 @@ configurations:
                               dsgdb_conf:
                                   dsg_interface_type: heracles
                                   uri: neo4j://$ADT4_HERACLES_IP:$ADT4_HERACLES_PORT
-                    tool_interface: openai
+                    tool_interface: ollama
                     max_iterations: 5
 
             refine:

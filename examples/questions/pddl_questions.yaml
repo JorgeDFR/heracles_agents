@@ -38,7 +38,7 @@ questions:
 
   - uid: 34B
     name: Ordered places
-    question: First go to place 59110 and then to place 10247
+    question: First go to mesh place 59110 and then to mesh place 10247
     solution: (and (visited-place P59110) (at-place P10247))
     correctness_comparator:
       comparison_type: PDDL
