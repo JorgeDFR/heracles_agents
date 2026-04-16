@@ -1,12 +1,14 @@
 # ruff: noqa: F811
-import logging
 
+import logging
 import tiktoken
+
+from plum import dispatch
+
 from anthropic import types as anthropic_types
 from anthropic.types.message import Message
 from anthropic.types.text_block import TextBlock
 from anthropic.types.tool_use_block import ToolUseBlock
-from plum import dispatch
 
 from heracles_agents.agent_functions import (
     call_custom_tool_from_string,

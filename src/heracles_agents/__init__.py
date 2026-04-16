@@ -6,10 +6,13 @@ import heracles_agents.pipelines.feedforward_cypher_pipeline
 import heracles_agents.pipelines.feedforward_in_context
 import heracles_agents.pipelines.feedforward_in_context_full
 import heracles_agents.pipelines.canary_pipeline
+
 import heracles_agents.provider_integrations.anthropic.anthropic_agent_integration
 import heracles_agents.provider_integrations.bedrock.bedrock_agent_integration
 import heracles_agents.provider_integrations.ollama.ollama_agent_integration
 import heracles_agents.provider_integrations.openai.openai_agent_integration
+import heracles_agents.provider_integrations.openrouter.openrouter_agent_integration
+
 import heracles_agents.tools.answer_tool
 import heracles_agents.tools.calculator_tool
 import heracles_agents.tools.canary_favog_tool

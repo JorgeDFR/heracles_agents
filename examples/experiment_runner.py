@@ -13,12 +13,15 @@ logging.basicConfig(level=logging.INFO, force=True)
 
 # List of experiment files
 experiment_fns = [
-    "experiments/ollama/canary_experiment.yaml",
-    "experiments/ollama/cypher_experiment.yaml",
-    "experiments/ollama/pddl_experiment.yaml",
-    "experiments/ollama/cypher_feedforward_experiment.yaml",
-    "experiments/ollama/pddl_feedforward_experiment.yaml",
+    "experiments/tests/openrouter_test.yaml"
 ]
+# experiment_fns = [
+#     "experiments/ollama/canary_experiment.yaml",
+#     "experiments/ollama/cypher_experiment.yaml",
+#     "experiments/ollama/pddl_experiment.yaml",
+#     "experiments/ollama/cypher_feedforward_experiment.yaml",
+#     "experiments/ollama/pddl_feedforward_experiment.yaml",
+# ]
 
 # experiment_fns = [
 #     "experiments/openai/canary_experiment.yaml",

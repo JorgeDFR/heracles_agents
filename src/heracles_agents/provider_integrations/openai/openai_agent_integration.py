@@ -1,16 +1,18 @@
 # ruff: noqa: F811
+
 import copy
 import json
 import logging
+import tiktoken
+
+from plum import dispatch
 from typing import Callable
 
-import tiktoken
 from openai.types.responses.response import Response
 from openai.types.responses.response_custom_tool_call import ResponseCustomToolCall
 from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
 from openai.types.responses.response_output_message import ResponseOutputMessage
 from openai.types.responses.response_reasoning_item import ResponseReasoningItem
-from plum import dispatch
 
 from heracles_agents.agent_functions import (
     call_custom_tool_from_string,

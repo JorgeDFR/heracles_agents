@@ -35,6 +35,7 @@ class OpenaiClientConfig(BaseSettings):
         if "gpt-5" in model_info.model:
             response = self._client.responses.create(
                 model=model_info.model,
+                temperature=model_info.temperature,
                 text=fmt,
                 tools=tools,
                 input=messages,

@@ -1,10 +1,13 @@
 # ruff: noqa: F811
+
 import copy
+import logging
+import tiktoken
+
+from plum import dispatch
 from typing import Callable
 
-import tiktoken
 from ollama import ChatResponse, Message
-from plum import dispatch
 
 from heracles_agents.agent_functions import (
     call_custom_tool_from_string,
@@ -16,13 +19,12 @@ from heracles_agents.provider_integrations.ollama.ollama_client import (
     OllamaClientConfig,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @dispatch
 def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[OllamaClientConfig]):
-    # explicit_tools = [tool.to_ollama() for tool in agent_info.tools.values()]
-
     p = copy.deepcopy(prompt)
-
     if agent.agent_info.tool_interface == "custom":
         # TODO: centralize custom tool prompt logic
         tool_command = """The following tools can be used to help formulate your answer.

@@ -128,15 +128,15 @@ def generate_tools_for_agent(agent_info):
     # also need to be made dynamic dispatch
     match agent_info.tool_interface:
         case "openai":
-            explicit_tools = [
-                tool.to_openai_responses() for tool in agent_info.tools.values()
-            ]
+            explicit_tools = [tool.to_openai_responses() for tool in agent_info.tools.values()]
         case "anthropic":
             explicit_tools = [tool.to_anthropic() for tool in agent_info.tools.values()]
         case "ollama":
             explicit_tools = [tool.to_ollama() for tool in agent_info.tools.values()]
         case "bedrock":
             explicit_tools = [tool.to_bedrock() for tool in agent_info.tools.values()]
+        case "openrouter":
+            explicit_tools = [tool.to_openrouter() for tool in agent_info.tools.values()]
         case "custom":
             explicit_tools = []
         case "none":

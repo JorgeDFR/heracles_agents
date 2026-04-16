@@ -19,12 +19,22 @@ class StructuredToolDescription(BaseModel):
 
     def to_anthropic(self):
         raise NotImplementedError(
-            "Structured tool calling not supported for anthropic tools"
+            "Structured tool calling not supported for Anthropic tools"
         )
 
     def to_ollama(self):
         raise NotImplementedError(
-            "Structured tool calling not supported for ollama tools"
+            "Structured tool calling not supported for Ollama tools"
+        )
+
+    def to_bedrock(self):
+        raise NotImplementedError(
+            "Structured tool calling not supported for Bedrock tools"
+        )
+
+    def to_openrouter(self):
+        raise NotImplementedError(
+            "Structured tool calling not supported for OpenRouter tools"
         )
 
     def to_custom(self):

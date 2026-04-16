@@ -12,9 +12,12 @@ from heracles_agents.provider_integrations.ollama.ollama_client import (
 from heracles_agents.provider_integrations.openai.openai_client import (
     OpenaiClientConfig,
 )
+from heracles_agents.provider_integrations.openrouter.openrouter_client import (
+    OpenRouterClientConfig,
+)
 
 ModelInterfaceConfigType = Union[
-    OpenaiClientConfig, AnthropicClientConfig, OllamaClientConfig, BedrockClientConfig
+    OpenaiClientConfig, AnthropicClientConfig, OllamaClientConfig, BedrockClientConfig, OpenRouterClientConfig
 ]
 
 

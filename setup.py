@@ -24,11 +24,13 @@ setup(
         "anthropic": ["anthropic"],
         "ollama": ["ollama"],
         "bedrock": ["boto3"],
+        "openrouter": ["openrouter"],
         "all": [
             "openai",
             "anthropic",
             "ollama",
             "boto3",
+            "openrouter",
         ],
     },
 )

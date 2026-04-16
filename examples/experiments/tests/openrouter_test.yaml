@@ -9,11 +9,12 @@ configurations:
         phases:
             main:
                 client:
-                    client_type: anthropic
+                    client_type: openrouter
 
                 model_info:
-                    model: claude-4.5-haiku
+                    model: openai/gpt-oss-20b:free
                     temperature: 0.2
+                    #seed: 123
 
                 agent_info:
                     prompt_settings:

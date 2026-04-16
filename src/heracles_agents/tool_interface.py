@@ -50,6 +50,12 @@ class FunctionParameter:
     def to_ollama(self):
         return self.to_openai_responses()
 
+    def to_bedrock(self):
+        return self.to_openai_responses()
+
+    def to_openrouter(self):
+        return self.to_openai_responses()
+
     def to_custom(self):
         d = [
             f"Param name: {self.name}",
@@ -59,9 +65,6 @@ class FunctionParameter:
         if self.enum_values is not None:
             d.append(f"Allowed values: {str(self.enum_values)}")
         return d
-
-    def to_bedrock(self):
-        return self.to_openai_responses()
 
 
 class ToolDescription(BaseModel):
@@ -116,14 +119,12 @@ class ToolDescription(BaseModel):
             parameter_properties |= p.to_openai_responses()
 
         required = [p.name for p in self.parameters if p.required]
-
         parameter_descriptions = {
             "type": "object",
             "properties": parameter_properties,
             "required": required,
             "additionalProperties": False,
         }
-
         t = {
             "type": "function",
             "name": self.name,
@@ -156,14 +157,12 @@ class ToolDescription(BaseModel):
             parameter_properties |= p.to_ollama()
 
         required = [p.name for p in self.parameters if p.required]
-
         parameter_descriptions = {
             "type": "object",
             "properties": parameter_properties,
             "required": required,
             "additionalProperties": False,
         }
-
         t = {
             "type": "function",
             "function": {
@@ -178,6 +177,7 @@ class ToolDescription(BaseModel):
         parameter_properties = {}
         for p in self.parameters:
             parameter_properties |= p.to_bedrock()
+
         required = [p.name for p in self.parameters if p.required]
         s = {
             "json": {
@@ -188,6 +188,27 @@ class ToolDescription(BaseModel):
         }
         t = {"name": self.name, "description": self.description, "inputSchema": s}
         return {"toolSpec": t}
+
+    def to_openrouter(self):
+        parameter_properties = {}
+        for p in self.parameters:
+            parameter_properties |= p.to_openrouter()
+
+        required = [p.name for p in self.parameters if p.required]
+        parameter_descriptions = {
+            "type": "object",
+            "properties": parameter_properties,
+            "required": required,
+        }
+        t = {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": parameter_descriptions,
+            },
+        }
+        return t
 
     def to_custom(self):
         parameter_descriptions = ""
