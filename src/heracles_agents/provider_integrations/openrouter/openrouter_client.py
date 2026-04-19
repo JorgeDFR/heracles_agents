@@ -32,19 +32,13 @@ class OpenRouterClientConfig(BaseSettings):
         if model_info.seed is not None:
             payload["seed"] = model_info.seed
 
-        response = self._client.chat.send(**payload)
+        try:
+            response = self._client.chat.send(**payload)
+            print("Test 123: ", response)
+        except Exception as e:
+            print("Test 123: ", e)
 
-        print(response)
-        print()
-        print(response.choices[0])
-        print()
-        print(response.choices[0].message)
-        print()
-        print(response.choices[0].message.content)
-        print()
-        print(response.choices[0].message.tool_calls)
-        print()
-
-        # TODO: find the type of response and how to get tool call component and type
+        # TODO: deal with erros such as:
+        # - POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
 
         return response

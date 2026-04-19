@@ -1,7 +1,7 @@
 metadata: {}
 configurations:
 
-    agentic-canary-qa:
+    canary:
         dsg_interface:
             dsg_interface_type: none
 
@@ -12,9 +12,9 @@ configurations:
                     client_type: openrouter
 
                 model_info:
-                    model: openai/gpt-oss-120b:free
+                    model: google/gemma-4-26b-a4b-it:free
                     temperature: 0.2
-                    #seed: 123
+                    seed: 123
 
                 agent_info:
                     prompt_settings:
@@ -24,7 +24,7 @@ configurations:
                     tools:
                         - name: calculator
                         - name: ask_favog
-                    tool_interface: custom
+                    tool_interface: openrouter
                     max_iterations: 5
 
         questions: $HERACLES_AGENTS_PATH/examples/questions/canary_questions.yaml

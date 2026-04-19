@@ -9,6 +9,7 @@ from plum import dispatch
 from typing import Callable
 
 from openrouter.components import ChatResult
+from openrouter.components import ChatAssistantMessage
 from openrouter.components import ChatToolCall
 
 from heracles_agents.agent_functions import (
@@ -68,10 +69,10 @@ def call_function(agent: LlmAgent[OpenRouterClientConfig], tool_call: ChatToolCa
 
 
 @dispatch
-def call_function(agent: LlmAgent[OpenRouterClientConfig], tool_call: dict):
+def call_function(agent: LlmAgent[OpenRouterClientConfig], tool_call: ChatAssistantMessage):
     """Handles custom (XML-tag) tool calls carried in a plain message dict."""
     available_tools = agent.agent_info.tools
-    tool_string = extract_tag("tool", tool_call["content"])
+    tool_string = extract_tag("tool", tool_call.content)
     return call_custom_tool_from_string(available_tools, tool_string)
 
 
@@ -91,53 +92,59 @@ def make_tool_response(
 
 
 @dispatch
-def make_tool_response(agent: LlmAgent[OpenRouterClientConfig], message: dict, result):
+def make_tool_response(
+    agent: LlmAgent[OpenRouterClientConfig],
+    message: ChatAssistantMessage,
+    result,
+):
     """Fallback for custom (XML-tag) tool calls — wrap result as a user message."""
     return {"role": "user", "content": f"Output of tool call: {result}"}
 
 
 @dispatch
 def generate_update_for_history(
-    agent: LlmAgent[OpenRouterClientConfig], response: object
+    agent: LlmAgent[OpenRouterClientConfig],
+    response: ChatResult
 ) -> list:
-    return response.message
+    return response.choices[0].message
 
 
 @dispatch
 def extract_answer(
     agent: LlmAgent[OpenRouterClientConfig],
     extractor: Callable,
-    response: object,
+    response: ChatResult,
 ):
-    return extract_answer(agent, extractor, response.message)
+    return extract_answer(agent, extractor, response.choices[0].message)
 
 
 @dispatch
 def extract_answer(
     agent: LlmAgent[OpenRouterClientConfig],
     extractor: Callable,
-    message: object,
+    message: ChatAssistantMessage,
 ):
-    return extractor(message.content)
+    if message.content is not None:
+        return extractor(message.content)
+    else:
+        return extractor(message.reasoning)
 
 
 @dispatch
-def extract_answer(
-    agent: LlmAgent[OpenRouterClientConfig],
-    extractor: Callable,
-    message: dict,
-):
-    return extractor(message["content"])
+def get_text_body(response: ChatResult):
+    message = response.choices[0].message
+    if message.content is not None:
+        return message.content
+    else:
+        return message.reasoning
 
 
 @dispatch
-def get_text_body(message: dict):
-    return message.content
-
-
-@dispatch
-def get_text_body(response: object):
-    return response.message.content
+def get_text_body(message: ChatAssistantMessage):
+    if message.content is not None:
+        return message.content
+    else:
+        return message.reasoning
 
 
 @dispatch
@@ -148,4 +155,5 @@ def get_text_body(tool_call: ChatToolCall):
 @dispatch
 def count_message_tokens(agent: LlmAgent[OpenRouterClientConfig], message: dict):
     enc = tiktoken.get_encoding("cl100k_base")
-    return len(enc.encode(message["content"]))
+    content = message.get("content") or ""
+    return len(enc.encode(content))

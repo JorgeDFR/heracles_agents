@@ -12,9 +12,6 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, force=True)
 
 # List of experiment files
-experiment_fns = [
-    "experiments/tests/openrouter_test.yaml"
-]
 # experiment_fns = [
 #     "experiments/ollama/canary_experiment.yaml",
 #     "experiments/ollama/cypher_experiment.yaml",
@@ -22,6 +19,14 @@ experiment_fns = [
 #     "experiments/ollama/cypher_feedforward_experiment.yaml",
 #     "experiments/ollama/pddl_feedforward_experiment.yaml",
 # ]
+
+experiment_fns = [
+    # "experiments/openrouter/canary_experiment.yaml",
+    "experiments/openrouter/cypher_experiment.yaml",
+    # "experiments/openrouter/pddl_experiment.yaml",
+    # "experiments/openrouter/cypher_feedforward_experiment.yaml",
+    # "experiments/openrouter/pddl_feedforward_experiment.yaml",
+]
 
 # experiment_fns = [
 #     "experiments/openai/canary_experiment.yaml",
@@ -32,10 +37,11 @@ experiment_fns = [
 # ]
 
 # experiment_fns = [
-#     "experiments/tests/ollama_test.yaml"
-#     "experiments/tests/openai_test.yaml"
-#     "experiments/tests/anthropic_test.yaml"
-#     "experiments/tests/bedrock_test.yaml"
+#     "experiments/tests/ollama_test.yaml",
+#     "experiments/tests/openai_test.yaml",
+#     "experiments/tests/anthropic_test.yaml",
+#     "experiments/tests/bedrock_test.yaml",
+#     "experiments/tests/openrouter_test.yaml",
 # ]
 
 # Prepare base output folder
