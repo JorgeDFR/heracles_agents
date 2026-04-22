@@ -126,8 +126,10 @@ def extract_answer(
 ):
     if message.content is not None:
         return extractor(message.content)
+    # elif message.reasoning is not None:
+    #     return extractor(message.reasoning)
     else:
-        return extractor(message.reasoning)
+        return ""
 
 
 @dispatch
@@ -135,16 +137,20 @@ def get_text_body(response: ChatResult):
     message = response.choices[0].message
     if message.content is not None:
         return message.content
+    # elif message.reasoning is not None:
+    #     return message.reasoning
     else:
-        return message.reasoning
+        return ""
 
 
 @dispatch
 def get_text_body(message: ChatAssistantMessage):
     if message.content is not None:
         return message.content
+    # if message.reasoning is not None:
+    #     return message.reasoning
     else:
-        return message.reasoning
+        return ""
 
 
 @dispatch

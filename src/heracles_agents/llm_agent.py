@@ -25,6 +25,7 @@ class ModelInfo(BaseModel):
     model: str
     temperature: float = 1.0
     seed: Optional[int] = None
+    reasoning: Optional[str] = None
 
 
 def apply_bound_args(tool_name, bound_args):

@@ -13,7 +13,7 @@ configurations:
                     client_type: openrouter
 
                 model_info:
-                    model: google/gemma-4-26b-a4b-it:free
+                    model: google/gemma-4-26b-a4b-it
                     temperature: 0.2
                     seed: 123
 

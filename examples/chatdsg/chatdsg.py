@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import argparse
 import logging
 import os
@@ -95,12 +96,6 @@ class InputDisplayApp(App):
 
         thread = threading.Thread(target=run_agent)
         thread.start()
-
-        # success, answer = cxt.run()
-        # responses = cxt.get_agent_responses()
-        # for r in responses[initial_length:]:
-        #    text_log.write(r.parsed_response)
-        #    text_log.write("")
 
 
 if __name__ == "__main__":

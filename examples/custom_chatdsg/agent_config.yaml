@@ -1,11 +1,10 @@
 ---
 client:
-  client_type: ollama
-  #timeout: 20
+  client_type: openrouter #ollama
 model_info:
-  model: gemma3:27b
-  temperature: 0.02
-  #seed: 123
+  model: google/gemma-4-26b-a4b-it
+  temperature: 0.2
+  #reasoning: minimal
 agent_info:
   prompt_settings:
     base_prompt: agent_prompt.yaml
@@ -21,5 +20,5 @@ agent_info:
     # - name: visualize_objects
     #   bound_args:
     #     viz_topic: /viz_objects_marker_array
-  tool_interface: custom
+  tool_interface: openrouter
   max_iterations: 5

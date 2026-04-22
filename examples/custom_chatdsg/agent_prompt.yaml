@@ -17,3 +17,7 @@ interface_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/cypher_in
 domain_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_domain_description.yaml
 
 novel_instruction_template: "{question}"
+
+# Unless otherwise specified, you should return the node symbols of things you are asked about.
+# Do not return more information than is explicitly requested.
+# If the answer to the user's query can be represented as an ascii plot (preferably a histogram), you should include that in your response.

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import os
 import copy
 import yaml
@@ -13,7 +14,7 @@ from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.llm_interface import AgentContext
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)
 
 
 def new_user_message(text):

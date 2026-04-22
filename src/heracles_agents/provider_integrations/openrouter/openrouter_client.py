@@ -1,8 +1,12 @@
+import time
+import logging
 from typing import Literal
 
 from openrouter import OpenRouter
 from pydantic import Field, PrivateAttr, SecretStr
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class OpenRouterClientConfig(BaseSettings):
@@ -32,13 +36,31 @@ class OpenRouterClientConfig(BaseSettings):
         if model_info.seed is not None:
             payload["seed"] = model_info.seed
 
-        try:
-            response = self._client.chat.send(**payload)
-            print("Test 123: ", response)
-        except Exception as e:
-            print("Test 123: ", e)
+        if model_info.reasoning is not None:
+            payload["reasoning"] = {"effort": model_info.reasoning}
 
-        # TODO: deal with erros such as:
-        # - POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+        max_retries = 3
+        backoff_factor = 2
+        response = None
+        retries = 0
+        while retries <= max_retries:
+            try:
+                response = self._client.chat.send(**payload)
+                break
+            except Exception as e:
+                retries += 1
+                if "429" in str(e):
+                    wait_time = backoff_factor ** retries
+                    logger.warning(
+                        f"Rate limit hit (HTTP 429). Retrying in {wait_time} seconds... [Attempt {retries}/{max_retries}]"
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Request failed: {e}")
+                    break
+
+        if response is None:
+            response = {"error": "Request failed after retries."}
+            logger.error("All retries failed. Returning error response.")
 
         return response
