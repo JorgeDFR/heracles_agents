@@ -24,6 +24,12 @@ from heracles_agents.agent_functions import (
     iterate_messages,
     make_tool_response,
 )
+from heracles_agents.exceptions import (
+    LlmRateLimitError,
+    LlmTimeoutError,
+    LlmServiceUnavailableError,
+    LlmConnectionError,
+)
 from heracles_agents.llm_agent import LlmAgent
 
 logger = logging.getLogger(__name__)
@@ -278,64 +284,45 @@ class AgentContext:
         # Needs to align with prompt, most likely
         response_format = "text"
 
-        n_ratelimit_retries = 5
+        n_retries = 5
         wait_time_s = 60
-        for idx in range(n_ratelimit_retries):
+        last_exception = None
+        for idx in range(n_retries):
             try:
-                response = self.agent.client.call(
-                    model_info, explicit_tools, response_format, history
+                return self.agent.client.call(
+                    model_info,
+                    explicit_tools,
+                    response_format,
+                    history,
                 )
-            except openai.RateLimitError as ex:
-                # TODO: each client should catch their own rate limit errors and then emit a shared single error type that we catch here
-                print(ex)
-                logging.warning(
-                    f"Hit OpenAI rate limit error. Waiting {wait_time_s} seconds. Will retry ({idx} / {n_ratelimit_retries}"
-                )
-                time.sleep(wait_time_s)
-                continue
-            except ThrottlingException as ex:
-                print(ex)
-                logging.warning(
-                    f"Hit Bedrock rate limit error. Waiting {wait_time_s} seconds. Will retry ({idx} / {n_ratelimit_retries}"
-                )
-                time.sleep(wait_time_s)
-                continue
 
-            except ModelTimeoutException as ex:
-                print(ex)
+            # ----------------------------------------------------------
+            # Retryable errors
+            # ----------------------------------------------------------
+            except (
+                LlmRateLimitError,
+                LlmTimeoutError,
+                LlmServiceUnavailableError,
+                LlmConnectionError,
+            ) as ex:
+                last_exception = ex
                 logging.warning(
-                    f"Bedrock model timeout. Waiting {wait_time_s} seconds. Will retry ({idx} / {n_ratelimit_retries}"
+                    f"{type(ex).__name__}: {ex}\n"
+                    f"Retrying in {wait_time_s}s "
+                    f"({idx + 1}/{n_retries})"
                 )
+                #sleep = min(60, (2 ** idx) + random.random())
+                #time.sleep(sleep)
                 time.sleep(wait_time_s)
-                continue
 
-            except ServiceUnavailableException as ex:
-                print(ex)
-                logging.warning(
-                    f"Bedrock service unavailable. Waiting {wait_time_s} seconds. Will retry ({idx} / {n_ratelimit_retries}"
-                )
-                time.sleep(wait_time_s)
-                continue
+            # ----------------------------------------------------------
+            # Fatal provider errors
+            # ----------------------------------------------------------
+            except Exception as ex:
+                logger.exception("Fatal LLM provider error")
+                raise ex
 
-            except openai.APITimeoutError as ex:
-                # TODO: each client should catch their own rate limit errors and then emit a shared single error type that we catch here
-                print(ex)
-                logging.warning(
-                    f"Hit OpenAI Timeout error. Waiting {wait_time_s} seconds. Will retry ({idx} / {n_ratelimit_retries}"
-                )
-                time.sleep(wait_time_s)
-                continue
-            except openai.APIStatusError as ex:
-                # TODO: each client should catch their own rate limit errors and then emit a shared single error type that we catch here
-                print(ex)
-                logging.warning(
-                    f"Hit OpenAI API error. Waiting {wait_time_s} seconds. Will retry ({idx} / {n_ratelimit_retries}"
-                )
-                time.sleep(wait_time_s)
-                continue
-
-            break
-        return response
+        raise RuntimeError(f"LLM call failed after {n_retries} retries") from last_exception
 
     def handle_response(self, response):
         executed_tool_calls = []
@@ -374,11 +361,17 @@ class AgentContext:
 
     def step(self):
         logger.debug("Agent stepping")
-        # TODO: Handle timeout and RateLimit errors
-        response = self.call_llm(self.history)
-        logger.debug(f"Got response: {response}")
+        try:
+            response = self.call_llm(self.history)
+            logger.debug(f"Got response: {response}")
+
+        except Exception as e:
+            logger.exception("Fatal LLM error")
+            return False
+
         update = self.handle_response(response)
         logger.debug(f"Tool update: {update}")
+
         self.update_history(response)
         self.update_history(update)
         done = self.check_if_done(self.history, response, update)
