@@ -40,7 +40,13 @@ def load_experiment_file(file_path: Path) -> dict:
 def get_test_experiment_file() -> Path:
     """Get a specific experiment file for testing."""
     # Using canary_experiment.yaml as it has a simpler structure
-    return get_project_root() / "examples" / "experiments" / "anthropic_test.yaml"
+    return (
+        get_project_root()
+        / "examples"
+        / "experiments"
+        / "tests"
+        / "anthropic_test.yaml"
+    )
 
 
 class TestExperimentParsing:
@@ -94,16 +100,14 @@ class TestExperimentParsing:
     def test_simple_parsing(self):
         """Test parsing a simple experiment YAML file."""
         # Load and parse anthropic test file which has the correct structure
-        anthropic_file = (
-            get_project_root() / "examples" / "experiments" / "anthropic_test.yaml"
-        )
+        anthropic_file = get_test_experiment_file()
         experiment_data = load_experiment_file(anthropic_file)
 
         with (
             patch.dict(
                 os.environ,
                 {
-                    "HERACLES_EVALUATION_PATH": str(get_project_root()),
+                    "HERACLES_AGENTS_PATH": str(get_project_root()),
                     "HERACLES_ANTHROPIC_API_KEY": "test-key",
                 },
             ),
@@ -116,16 +120,15 @@ class TestExperimentParsing:
 
         """Test parsing an experiment from an actual YAML file."""
         # Load and parse canary experiment file
-        canary_file = (
-            get_project_root() / "examples" / "experiments" / "anthropic_test.yaml"
-        )
+        canary_file = get_test_experiment_file()
         experiment_data = load_experiment_file(canary_file)
 
         with (
             patch.dict(
                 os.environ,
                 {
-                    "HERACLES_EVALUATION_PATH": str(get_project_root()),
+                    "HERACLES_AGENTS_PATH": str(get_project_root()),
+                    "HERACLES_ANTHROPIC_API_KEY": "test-key",
                     "HERACLES_OPENAI_API_KEY": "test-key",
                 },
             ),
@@ -139,9 +142,7 @@ class TestExperimentParsing:
     def test_parse_experiment_with_env_vars(self):
         """Test parsing experiment YAML with environment variable expansion."""
         # Load and parse anthropic test file which has env vars
-        anthropic_file = (
-            get_project_root() / "examples" / "experiments" / "anthropic_test.yaml"
-        )
+        anthropic_file = get_test_experiment_file()
         experiment_data = load_experiment_file(anthropic_file)
 
         # Set environment variables and test parsing
@@ -149,7 +150,7 @@ class TestExperimentParsing:
             patch.dict(
                 os.environ,
                 {
-                    "HERACLES_EVALUATION_PATH": str(get_project_root()),
+                    "HERACLES_AGENTS_PATH": str(get_project_root()),
                     "HERACLES_ANTHROPIC_API_KEY": "test-key",
                 },
             ),
@@ -163,16 +164,14 @@ class TestExperimentParsing:
     def test_parse_experiment_with_real_anthropic_structure(self):
         """Test parsing experiment that matches the anthropic_test.yaml structure."""
         # Load anthropic test experiment file
-        anthropic_file = (
-            get_project_root() / "examples" / "experiments" / "anthropic_test.yaml"
-        )
+        anthropic_file = get_test_experiment_file()
         anthropic_data = load_experiment_file(anthropic_file)
 
         with (
             patch.dict(
                 os.environ,
                 {
-                    "HERACLES_EVALUATION_PATH": str(get_project_root()),
+                    "HERACLES_AGENTS_PATH": str(get_project_root()),
                     "HERACLES_ANTHROPIC_API_KEY": "test-key",
                 },
             ),

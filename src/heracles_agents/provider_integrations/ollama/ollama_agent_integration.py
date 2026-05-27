@@ -4,8 +4,8 @@ import copy
 import logging
 import tiktoken
 
+from collections.abc import Callable
 from plum import dispatch
-from typing import Callable
 
 from ollama import ChatResponse, Message
 

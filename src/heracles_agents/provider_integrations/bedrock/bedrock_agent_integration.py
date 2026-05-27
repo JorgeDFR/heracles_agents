@@ -4,8 +4,8 @@ import copy
 import logging
 import tiktoken
 
+from collections.abc import Callable
 from plum import dispatch
-from typing import Callable
 
 from heracles_agents.agent_functions import (
     call_custom_tool_from_string,

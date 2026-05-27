@@ -5,8 +5,8 @@ import json
 import logging
 import tiktoken
 
+from collections.abc import Callable
 from plum import dispatch
-from typing import Callable
 
 from openai.types.responses.response import Response
 from openai.types.responses.response_custom_tool_call import ResponseCustomToolCall

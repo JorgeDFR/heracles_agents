@@ -4,7 +4,7 @@ from typing import Optional
 
 import typer
 import yaml
-from llm_interface import EvalQuestion
+from heracles_agents.llm_interface import EvalQuestion
 from rich.console import Console
 from rich.table import Table
 
@@ -64,7 +64,7 @@ def render_table(
             if q.tags and len(q.tags) > 0:
                 r += (", ".join(q.tags),)
             else:
-                r += []
+                r += ("",)
         if validate:
             if q.correctness_comparator.comparison_type == "PDDL":
                 is_valid = validate_pddl_solution(q.solution)

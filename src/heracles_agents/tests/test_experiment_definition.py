@@ -41,10 +41,32 @@ def load_experiment_file(file_path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+def get_config(experiment_data: dict, name: str) -> dict:
+    """Return one named configuration from a full experiment YAML document."""
+    return experiment_data["configurations"][name]
+
+
 def get_test_experiment_file() -> Path:
     """Get a specific experiment file for testing."""
     # Using canary_experiment.yaml as it has a simpler structure
-    return get_project_root() / "examples" / "experiments" / "canary_experiment.yaml"
+    return (
+        get_project_root()
+        / "examples"
+        / "experiments"
+        / "openai"
+        / "canary_experiment.yaml"
+    )
+
+
+def get_anthropic_experiment_file() -> Path:
+    """Get a second real experiment file for multi-configuration tests."""
+    return (
+        get_project_root()
+        / "examples"
+        / "experiments"
+        / "tests"
+        / "anthropic_test.yaml"
+    )
 
 
 class TestPipelineDescription:
@@ -92,10 +114,10 @@ class TestRegisterPipeline:
 
         # Load real experiment files
         self.experiment_file = get_test_experiment_file()
-        self.experiment_data = load_experiment_file(self.experiment_file)
+        self.experiment_data = get_config(load_experiment_file(self.experiment_file), "canary")
 
         self.master_experiment_file = (
-            get_project_root() / "examples" / "experiments" / "master_experiment.yaml"
+            get_anthropic_experiment_file()
         )
         self.master_experiment_data = load_experiment_file(self.master_experiment_file)
 
@@ -117,6 +139,7 @@ class TestRegisterPipeline:
 
         assert "canary" in PipelineRegistry.pipelines
         assert PipelineRegistry.pipelines["canary"] == pipeline
+        assert PipelineRegistry.registered_pipeline_summary() == ["canary"]
 
     def test_register_duplicate_real_pipeline(self, capsys):
         """Test registering a duplicate real pipeline."""
@@ -192,10 +215,10 @@ class TestExperimentConfiguration:
 
         # Load real experiment files
         self.experiment_file = get_test_experiment_file()
-        self.experiment_data = load_experiment_file(self.experiment_file)
+        self.experiment_data = get_config(load_experiment_file(self.experiment_file), "canary")
 
         self.master_experiment_file = (
-            get_project_root() / "examples" / "experiments" / "master_experiment.yaml"
+            get_anthropic_experiment_file()
         )
         self.master_experiment_data = load_experiment_file(self.master_experiment_file)
 
@@ -278,7 +301,7 @@ class TestExperimentConfiguration:
 
         # Patch environment variable used in the path
         with patch.dict(
-            os.environ, {"HERACLES_EVALUATION_PATH": str(get_project_root())}
+            os.environ, {"HERACLES_AGENTS_PATH": str(get_project_root())}
         ):
             result = ExperimentConfiguration.load_questions(questions_path)
             assert len(result) > 0
@@ -353,7 +376,7 @@ class TestExperimentConfiguration:
 
         # Patch environment variable used in the questions path
         with patch.dict(
-            os.environ, {"HERACLES_EVALUATION_PATH": str(get_project_root())}
+            os.environ, {"HERACLES_AGENTS_PATH": str(get_project_root())}
         ):
             config = ExperimentConfiguration(**config_data)
 
@@ -371,10 +394,10 @@ class TestExperimentDescription:
         PipelineRegistry.pipelines.clear()
 
         self.experiment_file = get_test_experiment_file()
-        self.experiment_data = load_experiment_file(self.experiment_file)
+        self.experiment_data = get_config(load_experiment_file(self.experiment_file), "canary")
 
         self.master_experiment_file = (
-            get_project_root() / "examples" / "experiments" / "master_experiment.yaml"
+            get_anthropic_experiment_file()
         )
         self.master_experiment_data = load_experiment_file(self.master_experiment_file)
 
@@ -406,7 +429,7 @@ class TestExperimentDescription:
                 pipeline="canary",
                 phases={"main": Mock()},
                 dsg_interface=self.master_experiment_data["configurations"][
-                    "canary-anthropic"
+                    "agentic-canary-qa"
                 ]["dsg_interface"],
                 questions=[],
             )
@@ -480,10 +503,10 @@ class TestIntegration:
 
         # Load real experiment files
         self.experiment_file = get_test_experiment_file()
-        self.experiment_data = load_experiment_file(self.experiment_file)
+        self.experiment_data = get_config(load_experiment_file(self.experiment_file), "canary")
 
         self.master_experiment_file = (
-            get_project_root() / "examples" / "experiments" / "master_experiment.yaml"
+            get_anthropic_experiment_file()
         )
         self.master_experiment_data = load_experiment_file(self.master_experiment_file)
 
@@ -516,7 +539,7 @@ class TestIntegration:
 
         # Patch environment variable used in the questions path
         with patch.dict(
-            os.environ, {"HERACLES_EVALUATION_PATH": str(get_project_root())}
+            os.environ, {"HERACLES_AGENTS_PATH": str(get_project_root())}
         ):
             config = ExperimentConfiguration(**config_data)
 
@@ -592,7 +615,7 @@ class TestIntegration:
                 pipeline="canary",
                 phases={"main": mock_agent},
                 dsg_interface=self.master_experiment_data["configurations"][
-                    "canary-anthropic"
+                    "agentic-canary-qa"
                 ]["dsg_interface"],
                 questions=[],
             )

@@ -1,6 +1,6 @@
 import copy
 from functools import partial
-from typing import Optional
+from typing import Generic, Optional, TypeVar
 
 from plum import parametric
 from pydantic import BaseModel, Field, field_serializer, field_validator
@@ -91,11 +91,12 @@ class AgentInfo(BaseModel):
 
 
 model_interface_config_type = get_client_union_type()
+T = TypeVar("T")
 
 
 @parametric
 @discriminated_union_dispatch("client")
-class LlmAgent[T](BaseModel):
+class LlmAgent(BaseModel, Generic[T]):
     agent_info: AgentInfo
     model_info: ModelInfo
     client: model_interface_config_type = Field(discriminator="client_type")

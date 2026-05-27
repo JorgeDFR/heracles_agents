@@ -50,7 +50,7 @@ class PipelineRegistry:
 
     @classmethod
     def registered_pipeline_summary(cls):
-        return list(cls.tools.keys())
+        return list(cls.pipelines.keys())
 
 
 def register_pipeline(pipeline_description: PipelineDescription):

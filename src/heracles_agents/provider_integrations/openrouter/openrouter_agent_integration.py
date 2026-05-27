@@ -5,8 +5,8 @@ import json
 import logging
 import tiktoken
 
+from collections.abc import Callable
 from plum import dispatch
-from typing import Callable
 
 from openrouter.components import ChatResult
 from openrouter.components import ChatAssistantMessage

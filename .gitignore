@@ -11,3 +11,7 @@ scratch/
 *.zip
 *.log
 logs/
+
+.venv/
+.test-venv/
+.pytest_cache/

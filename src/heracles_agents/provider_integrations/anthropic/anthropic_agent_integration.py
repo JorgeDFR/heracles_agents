@@ -51,7 +51,7 @@ def call_function(agent: LlmAgent[AnthropicClientConfig], tool_message: ToolUseB
 @dispatch
 def call_function(agent: LlmAgent[AnthropicClientConfig], tool_message: TextBlock):
     available_tools = agent.agent_info.tools
-    tool_string = extract_tag("tool", tool_message.content)
+    tool_string = extract_tag("tool", tool_message.text)
     return call_custom_tool_from_string(available_tools, tool_string)
 
 

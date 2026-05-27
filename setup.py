@@ -15,6 +15,7 @@ setup(
         "plum-dispatch >= v2.7.0",
         "lark",
         "tiktoken",
+        "typer",
         "spark-dsg",
         "textual",
         "heracles @ git+https://github.com/GoldenZephyr/heracles.git#subdirectory=heracles",
