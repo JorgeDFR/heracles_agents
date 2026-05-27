@@ -8,16 +8,33 @@ import heracles_agents.provider_integrations.openrouter.openrouter_agent_integra
 from heracles_agents.exceptions import (
     LlmAuthenticationError,
     LlmBadRequestError,
-    LlmConnectionError,
     LlmRateLimitError,
+    LlmServiceUnavailableError,
     LlmTimeoutError,
     LlmUnknownError,
 )
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openrouter.openrouter_client import (
+    BadGatewayResponseError,
+    BadRequestResponseError,
+    ConflictResponseError,
+    EdgeNetworkTimeoutResponseError,
+    ForbiddenResponseError,
+    InternalServerResponseError,
+    NoResponseError,
+    NotFoundResponseError,
     OpenRouterClientConfig,
+    OpenRouterError,
+    PayloadTooLargeResponseError,
+    ProviderOverloadedResponseError,
+    RequestTimeoutResponseError,
+    ServiceUnavailableResponseError,
+    TooManyRequestsResponseError,
+    UnauthorizedResponseError,
+    UnprocessableEntityResponseError,
 )
+from heracles_agents.tool_interface import FunctionParameter, ToolDescription
 
 
 def make_openrouter_agent(**agent_info_overrides):
@@ -42,8 +59,19 @@ def make_result(message):
     )
 
 
+def make_openrouter_error(error_type, message="error"):
+    error = error_type.__new__(error_type)
+    error.message = message
+    return error
+
+
 def test_openrouter_generate_prompt_adds_custom_tool_descriptions():
-    tool = SimpleNamespace(to_custom=lambda: "Function name: echo\n")
+    tool = ToolDescription(
+        name="echo",
+        description="Echo",
+        parameters=[FunctionParameter("value", str, "Value")],
+        function=lambda value: value,
+    )
     agent = make_openrouter_agent(tool_interface="custom", tools={"echo": tool})
 
     prompt = openrouter_agent.generate_prompt_for_agent(
@@ -76,6 +104,15 @@ def test_openrouter_iteration_and_text_body():
     assert openrouter_agent.get_text_body(message) == "hello"
     assert openrouter_agent.get_text_body(empty_message) == ""
     assert openrouter_agent.get_text_body(tool_call) == 'direct({"x": 2})'
+
+    normalized_message = openrouter_agent.normalize_message(agent, message)
+    normalized_tool = openrouter_agent.normalize_message(agent, tool_call)
+    assert normalized_message.kind == "assistant_text"
+    assert normalized_message.text == "hello"
+    assert normalized_tool.kind == "tool_call"
+    assert normalized_tool.tool_name == "direct"
+    assert normalized_tool.tool_args == {"x": 2}
+    assert normalized_tool.tool_id == "tool-id"
 
 
 def test_openrouter_function_and_custom_tool_calls():
@@ -159,16 +196,27 @@ def test_openrouter_client_payload_and_error_mapping():
         "reasoning": {"effort": "medium"},
     }
 
-    for message, error_type in [
-        ("429 rate limit", LlmRateLimitError),
-        ("timeout while waiting", LlmTimeoutError),
-        ("unauthorized auth failure", LlmAuthenticationError),
-        ("invalid bad request", LlmBadRequestError),
-        ("network connection reset", LlmConnectionError),
-        ("something else", LlmUnknownError),
+    for error, error_type in [
+        (make_openrouter_error(TooManyRequestsResponseError), LlmRateLimitError),
+        (make_openrouter_error(RequestTimeoutResponseError), LlmTimeoutError),
+        (make_openrouter_error(EdgeNetworkTimeoutResponseError), LlmTimeoutError),
+        (make_openrouter_error(ServiceUnavailableResponseError), LlmServiceUnavailableError),
+        (make_openrouter_error(ProviderOverloadedResponseError), LlmServiceUnavailableError),
+        (make_openrouter_error(InternalServerResponseError), LlmServiceUnavailableError),
+        (make_openrouter_error(BadGatewayResponseError), LlmServiceUnavailableError),
+        (make_openrouter_error(NoResponseError), LlmServiceUnavailableError),
+        (make_openrouter_error(UnauthorizedResponseError), LlmAuthenticationError),
+        (make_openrouter_error(ForbiddenResponseError), LlmAuthenticationError),
+        (make_openrouter_error(BadRequestResponseError), LlmBadRequestError),
+        (make_openrouter_error(UnprocessableEntityResponseError), LlmBadRequestError),
+        (make_openrouter_error(PayloadTooLargeResponseError), LlmBadRequestError),
+        (make_openrouter_error(NotFoundResponseError), LlmBadRequestError),
+        (make_openrouter_error(ConflictResponseError), LlmBadRequestError),
+        (make_openrouter_error(OpenRouterError), LlmUnknownError),
+        (RuntimeError("something else"), LlmUnknownError),
     ]:
         with pytest.raises(error_type):
-            client._raise_normalized_error(RuntimeError(message))
+            client._raise_normalized_error(error)
 
     with pytest.raises(ValueError, match="not implemented"):
         client.call(model_info, [], "json", [])

@@ -2,13 +2,22 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
-from ollama import ChatResponse, Message
+from ollama import ChatResponse, Message, RequestError, ResponseError
 
 import heracles_agents.provider_integrations.ollama.ollama_agent_integration as ollama_agent
-from heracles_agents.exceptions import LlmUnknownError
+from heracles_agents.exceptions import (
+    LlmAuthenticationError,
+    LlmBadRequestError,
+    LlmConnectionError,
+    LlmRateLimitError,
+    LlmServiceUnavailableError,
+    LlmTimeoutError,
+    LlmUnknownError,
+)
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.ollama.ollama_client import OllamaClientConfig
+from heracles_agents.tool_interface import FunctionParameter, ToolDescription
 
 
 def make_ollama_agent(**agent_info_overrides):
@@ -27,7 +36,12 @@ def make_response(message):
 
 
 def test_ollama_generate_prompt_adds_custom_tool_descriptions():
-    tool = SimpleNamespace(to_custom=lambda: "Function name: echo\n")
+    tool = ToolDescription(
+        name="echo",
+        description="Echo",
+        parameters=[FunctionParameter("value", str, "Value")],
+        function=lambda value: value,
+    )
     agent = make_ollama_agent(tool_interface="custom", tools={"echo": tool})
 
     prompt = ollama_agent.generate_prompt_for_agent(
@@ -50,6 +64,14 @@ def test_ollama_iteration_and_text_body():
     assert ollama_agent.get_text_body(message) == "hello"
     assert ollama_agent.get_text_body(response) == "hello"
     assert ollama_agent.get_text_body(tool_call) == "direct({'x': 2})"
+
+    normalized_message = ollama_agent.normalize_message(agent, message)
+    normalized_tool = ollama_agent.normalize_message(agent, tool_call)
+    assert normalized_message.kind == "assistant_text"
+    assert normalized_message.text == "hello"
+    assert normalized_tool.kind == "tool_call"
+    assert normalized_tool.tool_name == "direct"
+    assert normalized_tool.tool_args == {"x": 2}
 
 
 def test_ollama_function_and_custom_tool_calls():
@@ -124,3 +146,24 @@ def test_ollama_client_call_builds_options_and_normalizes_errors():
     client._chat_func = Mock(side_effect=RuntimeError("boom"))
     with pytest.raises(LlmUnknownError, match="boom"):
         client.call(model_info, [], "text", [])
+
+
+def test_ollama_client_normalizes_provider_errors():
+    client = OllamaClientConfig.model_construct()
+    model_info = SimpleNamespace(model="llama", temperature=0.3, seed=None)
+
+    for error, error_type in [
+        (TimeoutError("slow"), LlmTimeoutError),
+        (ConnectionError("down"), LlmConnectionError),
+        (RequestError("request failed"), LlmConnectionError),
+        (ResponseError("limited", 429), LlmRateLimitError),
+        (ResponseError("timeout", 408), LlmTimeoutError),
+        (ResponseError("unavailable", 503), LlmServiceUnavailableError),
+        (ResponseError("auth", 401), LlmAuthenticationError),
+        (ResponseError("bad", 400), LlmBadRequestError),
+        (ResponseError("odd", 418), LlmUnknownError),
+        (ValueError("bad value"), LlmBadRequestError),
+    ]:
+        client._chat_func = Mock(side_effect=error)
+        with pytest.raises(error_type):
+            client.call(model_info, [], "text", [])

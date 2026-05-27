@@ -2,7 +2,7 @@
 client:
   client_type: openrouter #ollama
 model_info:
-  model: mistralai/mistral-nemo #deepseek/deepseek-v4-flash #google/gemma-4-26b-a4b-it
+  model: google/gemma-4-26b-a4b-it #deepseek/deepseek-v4-flash #google/gemma-4-26b-a4b-it
   temperature: 0.2
   #reasoning: minimal
 agent_info:

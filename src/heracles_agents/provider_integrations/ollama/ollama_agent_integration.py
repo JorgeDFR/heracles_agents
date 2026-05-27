@@ -10,10 +10,13 @@ from plum import dispatch
 from ollama import ChatResponse, Message
 
 from heracles_agents.agent_functions import (
+    build_custom_tool_prompt,
     call_custom_tool_from_string,
     extract_tag,
+    get_tool_function,
 )
 from heracles_agents.llm_agent import LlmAgent
+from heracles_agents.normalized_response import NormalizedMessage
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.ollama.ollama_client import (
     OllamaClientConfig,
@@ -26,16 +29,7 @@ logger = logging.getLogger(__name__)
 def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[OllamaClientConfig]):
     p = copy.deepcopy(prompt)
     if agent.agent_info.tool_interface == "custom":
-        # TODO: centralize custom tool prompt logic
-        tool_command = """The following tools can be used to help formulate your answer.
-To call a tool, responde with the tool name and arguments between the <tool> and </tool> tags (XML-style format).
-Example: <tool> tool_name(arg1=1,arg2=2,arg3='3') </tool>
-You can use tool calls multiple times in a conversation, however only a single tool call per message.
-"""
-        for tool in agent.agent_info.tools.values():
-            d = tool.to_custom()
-            tool_command += d
-        p.tool_description = tool_command
+        p.tool_description = build_custom_tool_prompt(agent.agent_info.tools.values())
     return p.to_anthropic_json()
 
 
@@ -60,7 +54,7 @@ def is_function_call(agent: LlmAgent[OllamaClientConfig], tool_call):
 def call_function(agent: LlmAgent[OllamaClientConfig], tool_call: Message.ToolCall):
     available_tools = agent.agent_info.tools
     name = tool_call.function.name
-    return available_tools[name].function(**tool_call.function.arguments)
+    return get_tool_function(available_tools, name)(**tool_call.function.arguments)
 
 
 @dispatch
@@ -128,6 +122,35 @@ def get_text_body(response: ChatResponse):
 @dispatch
 def get_text_body(tool_call: Message.ToolCall):
     return f"{tool_call.function.name}({tool_call.function.arguments})"
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[OllamaClientConfig], response: ChatResponse):
+    return NormalizedMessage(
+        kind="assistant_text",
+        text=get_text_body(response),
+        raw=response,
+    )
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[OllamaClientConfig], message: Message):
+    return NormalizedMessage(
+        kind="assistant_text",
+        text=get_text_body(message),
+        raw=message,
+    )
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[OllamaClientConfig], tool_call: Message.ToolCall):
+    return NormalizedMessage(
+        kind="tool_call",
+        text=get_text_body(tool_call),
+        tool_name=tool_call.function.name,
+        tool_args=tool_call.function.arguments,
+        raw=tool_call,
+    )
 
 
 @dispatch

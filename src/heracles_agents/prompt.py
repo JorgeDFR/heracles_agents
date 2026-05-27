@@ -311,16 +311,16 @@ class Prompt(BaseModel):
 class PromptSettings(BaseModel):
     base_prompt: Prompt
     output_type: Optional[str] = None
-    sldp_answer_type_hint: bool = False  # TODO: move this....
+    answer_type_hint: bool = False
+    sldp_answer_type_hint: bool = False
+
+    @property
+    def include_answer_type_hint(self):
+        return self.answer_type_hint or self.sldp_answer_type_hint
 
     @field_validator("base_prompt", mode="before")
     @classmethod
     def load_prompt(cls, prompt_path):
-        # TODO: Ideally we would handle the case where a full Prompt is
-        # specified in the input yaml file (and not just a path), to support
-        # round-tripping where we want to dump the experiment back out to the
-        # final (in which case we will have lost track of the original file
-        # path. Instead we would just dump the full prompt structure
         match prompt_path:
             case str():
                 prompt_path = os.path.expandvars(prompt_path)

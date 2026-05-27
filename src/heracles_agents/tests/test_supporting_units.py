@@ -4,17 +4,22 @@ from unittest.mock import Mock, patch
 import pytest
 
 from heracles_agents.agent_functions import (
+    build_custom_tool_prompt,
     call_custom_tool_from_string,
     extract_answer_tag,
     extract_tag,
     generate_update_for_history,
+    get_tool_function,
     get_text_body,
     is_custom_tool_call,
 )
 from heracles_agents.llm_interface import (
     generate_tools_for_agent,
-    get_bedrock_block_summary,
     get_summary_text,
+)
+from heracles_agents.provider_integrations.bedrock.bedrock_agent_integration import (
+    BedrockMessage,
+    get_bedrock_block_summary,
 )
 from heracles_agents.structured_tool_interface import StructuredToolDescription
 from heracles_agents.summarize_results import (
@@ -25,12 +30,20 @@ from heracles_agents.summarize_results import (
 )
 from heracles_agents.token_utils import get_token_encoder
 from heracles_agents.tool_interface import FunctionParameter, ToolDescription
+from heracles_agents.tool_rendering import (
+    render_anthropic_tool,
+    render_bedrock_tool,
+    render_custom_tool,
+    render_ollama_tool,
+    render_openai_tool,
+    render_openrouter_tool,
+)
 from heracles_agents.tool_registry import ToolRegistry, register_tool
 from heracles_agents.tools.answer_tool import answer_tool
 from heracles_agents.tools.calculator_tool import test_calculator as calculator_fn
 from heracles_agents.tools.canary_favog_tool import the_mighty_favog
 from heracles_agents.tools.codegen_tool import execute_generated_code
-from heracles_agents.tools.cypher_query_tool import query_db
+from heracles_agents.tools.cypher_query_tool import bind_query_db, query_db
 from heracles_agents.tools.pddl_calling_tool import send_pddl
 
 
@@ -41,7 +54,7 @@ def test_structured_tool_openai_format_and_unsupported_providers():
         grammar="start: WORD",
     )
 
-    assert tool.to_openai_responses() == {
+    assert render_openai_tool(tool) == {
         "type": "custom",
         "name": "structured_answer",
         "description": "Return a constrained answer",
@@ -52,15 +65,15 @@ def test_structured_tool_openai_format_and_unsupported_providers():
         },
     }
 
-    for method in [
-        tool.to_anthropic,
-        tool.to_ollama,
-        tool.to_bedrock,
-        tool.to_openrouter,
-        tool.to_custom,
+    for renderer in [
+        render_anthropic_tool,
+        render_ollama_tool,
+        render_bedrock_tool,
+        render_openrouter_tool,
+        render_custom_tool,
     ]:
         with pytest.raises(NotImplementedError):
-            method()
+            renderer(tool)
 
 
 def test_tool_registry_registers_duplicates_and_validates_arg_types(capsys):
@@ -152,8 +165,26 @@ def test_agent_function_helpers_and_custom_tool_calls():
     tools = {
         "echo": SimpleNamespace(function=lambda value: value),
     }
+    prompt = build_custom_tool_prompt(
+        [
+            ToolDescription(
+                name="echo",
+                description="Echo",
+                parameters=[FunctionParameter("value", str, "Value")],
+                function=lambda value: value,
+            )
+        ]
+    )
+    assert "The following tools can be used" in prompt
+    assert "Function name: echo" in prompt
+
     assert call_custom_tool_from_string(tools, "echo(value='a\\\"b')") == 'a"b'
     assert "Improperly formatted" in call_custom_tool_from_string(tools, "not a call")
+    assert get_tool_function(tools, "echo")("x") == "x"
+    with pytest.raises(ValueError, match="Unknown tool 'missing'.*echo"):
+        get_tool_function(tools, "missing")
+    with pytest.raises(ValueError, match="Unknown tool 'missing'.*echo"):
+        call_custom_tool_from_string(tools, "missing(value='x')")
 
     assert extract_tag("answer", "x<answer>first</answer><answer>second</answer>") == "second"
     assert extract_answer_tag("<answer>done</answer>") == "done"
@@ -161,7 +192,6 @@ def test_agent_function_helpers_and_custom_tool_calls():
 
     assert get_text_body({"text": "hello"}) == "hello"
     assert get_text_body({"content": "body"}) == "body"
-    assert get_text_body({"toolUse": {"name": "fn", "input": {"a": 1}}}) == "fn(a=1,)"
     with pytest.raises(NotImplementedError):
         get_text_body({"unknown": "shape"})
 
@@ -188,7 +218,9 @@ def test_llm_summary_helpers_cover_provider_shapes():
     assert get_summary_text({"toolResult": {"content": [{"text": "ok"}]}}) == (
         "Tool result: ok"
     )
-    assert get_summary_text({"toolUse": {"name": "lookup", "input": {"x": 1}}}) == (
+    assert get_summary_text(
+        BedrockMessage({"toolUse": {"name": "lookup", "input": {"x": 1}}})
+    ) == (
         "Function Call: lookup(x=1,)"
     )
     assert get_summary_text({"role": "assistant", "content": [{"text": "hi"}]}) == (
@@ -199,30 +231,31 @@ def test_llm_summary_helpers_cover_provider_shapes():
     )
     assert get_summary_text({"unexpected": "value"}) == "{'unexpected': 'value'}"
 
-    assert get_bedrock_block_summary({"text": "hi"}) == "hi"
-    with pytest.raises(NotImplementedError):
-        get_bedrock_block_summary({"image": "unsupported"})
+    assert get_bedrock_block_summary(BedrockMessage({"text": "hi"})) == "hi"
+    assert get_bedrock_block_summary(BedrockMessage({"image": "unsupported"})) == (
+        "{'image': 'unsupported'}"
+    )
 
 
 def test_generate_tools_for_agent_dispatches_interfaces():
-    tool = Mock()
-    tool.to_openai_responses.return_value = "openai"
-    tool.to_anthropic.return_value = "anthropic"
-    tool.to_ollama.return_value = "ollama"
-    tool.to_bedrock.return_value = "bedrock"
-    tool.to_openrouter.return_value = "openrouter"
+    def echo(value: str):
+        return value
 
-    for interface, expected in [
-        ("openai", ["openai"]),
-        ("anthropic", ["anthropic"]),
-        ("ollama", ["ollama"]),
-        ("bedrock", ["bedrock"]),
-        ("openrouter", ["openrouter"]),
-        ("custom", []),
-        ("none", []),
-    ]:
+    tool = ToolDescription(
+        name="echo",
+        description="Echo",
+        parameters=[FunctionParameter("value", str, "Value")],
+        function=echo,
+    )
+
+    for interface in ["openai", "anthropic", "ollama", "bedrock", "openrouter"]:
         agent_info = SimpleNamespace(tool_interface=interface, tools={"tool": tool})
-        assert generate_tools_for_agent(agent_info) == expected
+        rendered = generate_tools_for_agent(agent_info)
+        assert str(rendered[0]).count("echo") >= 1
+
+    for interface in ["custom", "none"]:
+        agent_info = SimpleNamespace(tool_interface=interface, tools={"tool": tool})
+        assert generate_tools_for_agent(agent_info) == []
 
     with pytest.raises(NotImplementedError, match="Unknown tool interface"):
         generate_tools_for_agent(SimpleNamespace(tool_interface="bad", tools={}))
@@ -253,6 +286,20 @@ def test_simple_tool_functions_and_error_paths(monkeypatch):
 
     with pytest.raises(ValueError, match="dsgdb_conf=None"):
         query_db("MATCH (n) RETURN n")
+
+    calls = []
+
+    def fake_query_db(cypher_string, dsgdb_conf=None):
+        calls.append((cypher_string, dsgdb_conf))
+        return "result"
+
+    monkeypatch.setattr(
+        "heracles_agents.tools.cypher_query_tool.query_db",
+        fake_query_db,
+    )
+    dsgdb_conf = object()
+    assert bind_query_db(dsgdb_conf)("MATCH (n) RETURN n") == "result"
+    assert calls == [("MATCH (n) RETURN n", dsgdb_conf)]
 
     assert execute_generated_code("x = 1") == (
         "'solve_task' function not found in the generated code."

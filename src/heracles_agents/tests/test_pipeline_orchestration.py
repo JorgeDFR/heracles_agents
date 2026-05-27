@@ -2,8 +2,14 @@ from collections import deque
 from types import SimpleNamespace
 
 from heracles_agents.llm_interface import EvalQuestion
-from heracles_agents.pipelines import agentic_pipeline, canary_pipeline, feedforward_cypher_pipeline
+from heracles_agents.pipelines import (
+    agentic_pipeline,
+    canary_pipeline,
+    feedforward_codegen_pipeline,
+    feedforward_cypher_pipeline,
+)
 from heracles_agents.prompt import Prompt
+from heracles_agents.tool_interface import FunctionParameter, ToolDescription
 
 
 def make_question(uid="q1"):
@@ -17,11 +23,19 @@ def make_question(uid="q1"):
 
 
 def make_agent(tool_interface="none", template="Question: {question}"):
+    def tool_fn(value: str):
+        return value
+
     return SimpleNamespace(
         agent_info=SimpleNamespace(
             tool_interface=tool_interface,
             tools={
-                "tool": SimpleNamespace(to_custom=lambda: "Function name: tool")
+                "tool": ToolDescription(
+                    name="tool",
+                    description="Tool",
+                    parameters=[FunctionParameter("value", str, "Value")],
+                    function=tool_fn,
+                )
             },
             prompt_settings=SimpleNamespace(
                 base_prompt=Prompt(
@@ -61,7 +75,8 @@ def test_canary_generate_prompt_sets_tool_and_answer_guidance():
     prompt = canary_pipeline.generate_prompt(make_question(), make_agent("custom"))
 
     assert prompt.novel_instruction == "Question: What is 1 + 1?"
-    assert prompt.tool_description == "Function name: tool"
+    assert "The following tools can be used" in prompt.tool_description
+    assert "Function name: tool" in prompt.tool_description
     assert prompt.answer_semantic_guidance == "Make your answer as concise as possible."
     assert "SLDP Equality Language" in prompt.answer_formatting_guidance
 
@@ -93,6 +108,24 @@ def test_canary_pipeline_happy_path(monkeypatch):
     assert analyzed.analysis.n_tool_calls == 3
     assert analyzed.sequences[0].description == "canary-agent"
     assert FakeContext.instances[0].prompt.novel_instruction == "Question: What is 1 + 1?"
+
+
+def test_canary_pipeline_marks_failed_question_incomplete(monkeypatch):
+    class FailingContext(FakeContext):
+        def run(self):
+            raise RuntimeError("provider down")
+
+    FakeContext.instances.clear()
+    monkeypatch.setattr(canary_pipeline, "AgentContext", FailingContext)
+    exp = SimpleNamespace(questions=[make_question()], phases={"main": make_agent()})
+
+    result = canary_pipeline.canary_pipeline(exp)
+
+    analyzed = result.analyzed_questions[0]
+    assert analyzed.answer is None
+    assert analyzed.sequences == []
+    assert analyzed.completed is False
+    assert analyzed.analysis.correct is False
 
 
 def test_agentic_pipeline_uses_python_api_prompt(monkeypatch):
@@ -151,3 +184,52 @@ def test_feedforward_cypher_pipeline_happy_path(monkeypatch):
         "refinement-agent",
     ]
     assert "db results" in FakeContext.instances[1].prompt.novel_instruction
+
+
+def test_feedforward_codegen_pipeline_happy_path(monkeypatch):
+    FakeContext.instances.clear()
+
+    class CodegenContext(FakeContext):
+        def __init__(self, agent):
+            super().__init__(agent)
+            self.answer = "def solve_task(G): return 2" if len(FakeContext.instances) == 1 else "2"
+
+    monkeypatch.setattr(feedforward_codegen_pipeline, "AgentContext", CodegenContext)
+    monkeypatch.setattr(feedforward_codegen_pipeline, "load_dsg", lambda path, labels: ["graph"])
+    monkeypatch.setattr(
+        feedforward_codegen_pipeline,
+        "execute_generated_code",
+        lambda code, graph: (True, "2"),
+    )
+    exp = SimpleNamespace(
+        questions=[make_question()],
+        phases={
+            "generate-code": make_agent(),
+            "refine": make_agent(
+                template="Question: {question}; Code: {python_code}; Results: {python_results}"
+            ),
+        },
+        dsg_interface=SimpleNamespace(
+            dsg_filepath="$HOME/graph.dsg",
+            dsg_labels_filepath=None,
+            copy_dsg_per_question=True,
+            get_dsg_api_prompt=lambda: "API docs",
+        ),
+    )
+
+    result = feedforward_codegen_pipeline.feedforward_codegen(exp)
+
+    analyzed = result.analyzed_questions[0]
+    assert analyzed.answer == "2"
+    assert analyzed.analysis.correct
+    assert analyzed.analysis.input_tokens == 2
+    assert analyzed.analysis.output_tokens == 4
+    assert analyzed.analysis.n_tool_calls == 6
+    assert [sequence.description for sequence in analyzed.sequences] == [
+        "codegen-agent",
+        "refinement-agent",
+    ]
+    assert "API docs" in [
+        item["content"] for item in FakeContext.instances[0].prompt.to_openai_json()
+    ]
+    assert "Results: 2" in FakeContext.instances[1].prompt.novel_instruction

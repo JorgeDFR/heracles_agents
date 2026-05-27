@@ -3,11 +3,6 @@ import logging
 import time
 from typing import Literal, Optional, Union
 
-import boto3
-import openai
-from openai.types.responses.response_custom_tool_call import (
-    ResponseCustomToolCall,
-)  # TODO: push this down into the provider integration
 from plum import dispatch
 from pydantic import BaseModel, Field
 
@@ -16,13 +11,16 @@ from heracles_agents.agent_functions import (
     count_message_tokens,
     extract_answer,
     extract_answer_tag,
+    get_answer_tool_payload,
     generate_prompt_for_agent,
     generate_update_for_history,
     get_text_body,
+    is_answer_tool_call,
     is_custom_tool_call,
     is_function_call,
     iterate_messages,
     make_tool_response,
+    normalize_message,
 )
 from heracles_agents.exceptions import (
     LlmRateLimitError,
@@ -31,13 +29,13 @@ from heracles_agents.exceptions import (
     LlmConnectionError,
 )
 from heracles_agents.llm_agent import LlmAgent
+from heracles_agents.normalized_response import (
+    NormalizedMessage,
+    normalized_summary,
+)
+from heracles_agents.tool_rendering import render_tool_for_interface
 
 logger = logging.getLogger(__name__)
-
-BedrockRuntime = boto3.client("bedrock-runtime", "us-east-1")
-ThrottlingException = BedrockRuntime.exceptions.ThrottlingException
-ModelTimeoutException = BedrockRuntime.exceptions.ModelTimeoutException
-ServiceUnavailableException = BedrockRuntime.exceptions.ServiceUnavailableException
 
 
 class SldpComparison(BaseModel):
@@ -71,26 +69,13 @@ class AgentResponse(BaseModel):
     raw_response: str
     # interpretable response from the LLM (e.g., tool call, parsed final answer)
     parsed_response: Optional[str]
+    analysis: "ResponseAnalysis" = Field(default_factory=lambda: ResponseAnalysis())
 
 
-# TODO: seems like this could be useful at some point,
-# but currently it's not actually clear that we have
-# anything that we want to track per-response.
-# Maybe whether a tool call succeeded or something?
-# class ResponseAnalysis(BaseModel):
-#    # Information that might be relevant for individual LLM responses in the
-#    # context of a longer agent interaction.
-#
-#    # Eventually we might want different types for each "kind" of analysis, but for
-#    # now we will accumulate all possible metrics here and default them to false.
-#    # It's the job of whatever processes this analysis to decide which of these
-#    # flags is meaningful.
-#    valid_sldp: bool = False
-#    valid_cypher: bool = False
-
-# class AnalyzedResponse(BaseModel):
-#    agent_response: AgentResponse
-#    response_analysis: ResponseAnalysis
+class ResponseAnalysis(BaseModel):
+    valid_sldp: bool = False
+    valid_cypher: bool = False
+    tool_call_succeeded: Optional[bool] = None
 
 
 class AgentSequence(BaseModel):
@@ -113,11 +98,11 @@ class QuestionAnalysis(BaseModel):
 
 
 class AnalyzedQuestion(BaseModel):
-    # TODO: do we need to deal with partially-completed response lists?
     question: EvalQuestion
     sequences: list[AgentSequence]
     answer: Optional[str]
     analysis: Optional[QuestionAnalysis]
+    completed: bool = True
 
 
 class AnalyzedQuestions(BaseModel):
@@ -130,23 +115,16 @@ class AnalyzedExperiment(BaseModel):
 
 
 def generate_tools_for_agent(agent_info):
-    # TODO: if we want to go all the way with dynamic dispatch, the tool rendering functions
-    # also need to be made dynamic dispatch
     match agent_info.tool_interface:
-        case "openai":
-            explicit_tools = [tool.to_openai_responses() for tool in agent_info.tools.values()]
-        case "anthropic":
-            explicit_tools = [tool.to_anthropic() for tool in agent_info.tools.values()]
-        case "ollama":
-            explicit_tools = [tool.to_ollama() for tool in agent_info.tools.values()]
-        case "bedrock":
-            explicit_tools = [tool.to_bedrock() for tool in agent_info.tools.values()]
-        case "openrouter":
-            explicit_tools = [tool.to_openrouter() for tool in agent_info.tools.values()]
         case "custom":
             explicit_tools = []
         case "none":
             explicit_tools = []
+        case "openai" | "anthropic" | "ollama" | "bedrock" | "openrouter":
+            explicit_tools = [
+                render_tool_for_interface(tool, agent_info.tool_interface)
+                for tool in agent_info.tools.values()
+            ]
         case _:
             raise NotImplementedError(
                 f"Unknown tool interface: {agent_info.tool_interface}"
@@ -157,27 +135,13 @@ def generate_tools_for_agent(agent_info):
 def process_answer(agent: LlmAgent, message):
     match agent.agent_info.prompt_settings.output_type:
         case "SLDP_TOOL" | "PDDL_TOOL":
-            if isinstance(message, ResponseCustomToolCall):
-                # TODO: sanity check that tool matches our requested output tool?
-                return message.input
+            if is_answer_tool_call(agent, message):
+                return get_answer_tool_payload(agent, message)
 
         # case "SLDP" | "PDDL":
         case _:
             answer = extract_answer(agent, extract_answer_tag, message)
             return answer
-
-
-def is_answer_tool_call(agent: LlmAgent, message):
-    # TODO: abstract this check across providers
-    # TODO: really we need to explicitly connect the output_type to the tool call name from the LLM.
-    # We cannot run both constrained Cypher and constrained SLDP in an agentic framework until we get that right.
-    if agent.agent_info.prompt_settings.output_type in [
-        "SLDP_TOOL",
-        "PDDL_TOOL",
-    ] and isinstance(message, ResponseCustomToolCall):
-        return True
-
-    return False
 
 
 def needs_tool_processing(agent: LlmAgent, message):
@@ -203,47 +167,34 @@ def get_summary_text(resp: list):
 
 @dispatch
 def get_summary_text(resp):
-    return get_text_body(resp)
+    return normalized_summary(normalize_message(None, resp))
 
 
-def get_bedrock_block_summary(m):
-    if "text" in m:
-        return m["text"]
-    elif "toolUse" in m:
-        summary = m["toolUse"]["name"] + "("
-        for k, v in m["toolUse"]["input"].items():
-            summary += f"{k}={v},"
-        summary += ")"
-        return summary
-    else:
-        raise NotImplementedError(f"Don't know how to summarize: {m}")
+@dispatch
+def get_summary_text(resp: NormalizedMessage):
+    return normalized_summary(resp)
+
+
+def make_agent_response(resp):
+    return AgentResponse(raw_response=str(resp), parsed_response=get_summary_text(resp))
 
 
 @dispatch
 def get_summary_text(resp: dict):
-    # TODO: Good example of why we need to parse all client responses into types.....
-    if "role" in resp and "content" in resp:
+    if "text" in resp:
+        return resp["text"]
+    elif "role" in resp and "content" in resp:
         if isinstance(resp["content"], list):
-            if "text" in resp["content"][0]:
-                # bedrock
-                return (
-                    resp["role"]
-                    + ":"
-                    + "\n".join(get_bedrock_block_summary(r) for r in resp["content"])
-                )
-            else:
-                # anthropic
-                return (
-                    resp["role"]
-                    + ":"
-                    + "\n".join(get_summary_text(r) for r in resp["content"])
-                )
+            return (
+                resp["role"]
+                + ":"
+                + "\n".join(get_summary_text(r) for r in resp["content"])
+            )
         else:
             return resp["role"] + ": " + resp["content"]
     elif "type" in resp and resp["type"] == "function_call_output" and "output" in resp:
-        return "Function result: " + resp["output"]
+        return "Function result: " + str(resp["output"])
     elif "toolResult" in resp:
-        # bedrock
         try:
             return "Tool result: " + "\n".join(
                 r["text"] for r in resp["toolResult"]["content"]
@@ -252,9 +203,6 @@ def get_summary_text(resp: dict):
             logger.error("bedrock logging format error")
             logger.error(str(ex))
             return "Tool result: " + str(resp["toolResult"])
-    elif "toolUse" in resp:
-        # bedrock
-        return "Function Call: " + get_bedrock_block_summary(resp)
     else:
         logger.warning(f"Don't know how to turn dict {resp} into elegant string")
         return str(resp)
@@ -280,9 +228,7 @@ class AgentContext:
 
         explicit_tools = generate_tools_for_agent(self.agent.agent_info)
 
-        # TODO: what's a reasonable way to set the response format in general?
-        # Needs to align with prompt, most likely
-        response_format = "text"
+        response_format = getattr(model_info, "response_format", "text")
 
         n_retries = 5
         wait_time_s = 60
@@ -311,16 +257,14 @@ class AgentContext:
                     f"Retrying in {wait_time_s}s "
                     f"({idx + 1}/{n_retries})"
                 )
-                #sleep = min(60, (2 ** idx) + random.random())
-                #time.sleep(sleep)
                 time.sleep(wait_time_s)
 
             # ----------------------------------------------------------
             # Fatal provider errors
             # ----------------------------------------------------------
             except Exception as ex:
-                logger.exception("Fatal LLM provider error")
-                raise ex
+                logger.error(f"LLM provider call failed: {ex}")
+                raise
 
         raise RuntimeError(f"LLM call failed after {n_retries} retries") from last_exception
 
@@ -330,7 +274,7 @@ class AgentContext:
         for message in iterate_messages(self.agent, response):
             output_tokens = count_message_tokens(self.agent, message)
             self.total_output_tokens += output_tokens
-            message_text = get_text_body(message)
+            message_text = normalize_message(self.agent, message).text
             if message_text is not None:
                 logger.debug(f"Processing message ({type(message)}: {message_text}")
             if not needs_tool_processing(self.agent, message):
@@ -365,9 +309,13 @@ class AgentContext:
             response = self.call_llm(self.history)
             logger.debug(f"Got response: {response}")
 
-        except Exception as e:
-            logger.exception("Fatal LLM error")
-            return False
+        except Exception:
+            response = {
+                "role": "assistant",
+                "content": "Unable to contact LLM provider server!",
+            }
+            self.history.append(response)
+            return False, False
 
         update = self.handle_response(response)
         logger.debug(f"Tool update: {update}")
@@ -375,24 +323,17 @@ class AgentContext:
         self.update_history(response)
         self.update_history(update)
         done = self.check_if_done(self.history, response, update)
-        return done
+        return True, done
 
     def get_agent_responses(self):
-        # TODO: parse the LLM responses into a more useful representation in "parsed_response"
-        responses = [
-            AgentResponse(
-                raw_response=str(resp), parsed_response=get_summary_text(resp)
-            )
-            for resp in self.history
-        ]
-        return responses
+        return [make_agent_response(resp) for resp in self.history]
 
     def run(self):
         for i in range(self.agent.agent_info.max_iterations):
-            done = self.step()
-            if done:
+            success, done = self.step()
+            if done or not success:
                 break
-        if done:
+        if success and done:
             answer = process_answer(self.agent, self.history[-1])
         else:
             answer = None

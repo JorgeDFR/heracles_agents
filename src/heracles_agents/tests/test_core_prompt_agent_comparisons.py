@@ -222,6 +222,14 @@ def test_prompt_settings_loads_path_dict_and_prompt(tmp_path, monkeypatch):
     from_path = PromptSettings(base_prompt="$PROMPT_FILE", output_type="SLDP")
     assert from_path.base_prompt.system == "sys"
     assert from_path.output_type == "SLDP"
+    assert not from_path.include_answer_type_hint
+
+    with_answer_type_hint = PromptSettings(
+        base_prompt="$PROMPT_FILE",
+        output_type="SLDP",
+        answer_type_hint=True,
+    )
+    assert with_answer_type_hint.include_answer_type_hint
 
     from_dict = PromptSettings(base_prompt={"system": "dict", "novel_instruction": "ask"})
     assert from_dict.base_prompt.system == "dict"

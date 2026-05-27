@@ -26,6 +26,7 @@ class ModelInfo(BaseModel):
     temperature: float = 1.0
     seed: Optional[int] = None
     reasoning: Optional[str] = None
+    response_format: str = "text"
 
 
 def apply_bound_args(tool_name, bound_args):

@@ -7,6 +7,7 @@ import heracles_agents.provider_integrations.bedrock.bedrock_agent_integration a
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.bedrock.bedrock_client import BedrockClientConfig
+from heracles_agents.tool_interface import FunctionParameter, ToolDescription
 
 
 def make_bedrock_agent(**agent_info_overrides):
@@ -21,7 +22,12 @@ def make_bedrock_agent(**agent_info_overrides):
 
 
 def test_bedrock_generate_prompt_adds_custom_tool_descriptions():
-    tool = SimpleNamespace(to_custom=lambda: "Function name: echo\n")
+    tool = ToolDescription(
+        name="echo",
+        description="Echo",
+        parameters=[FunctionParameter("value", str, "Value")],
+        function=lambda value: value,
+    )
     agent = make_bedrock_agent(tool_interface="custom", tools={"echo": tool})
 
     prompt = bedrock_agent.generate_prompt_for_agent(
@@ -47,17 +53,26 @@ def test_bedrock_iteration_function_detection_and_tool_calls():
         }
     }
     response = {"output": {"message": {"content": [text_message, tool_message]}}}
+    messages = list(bedrock_agent.iterate_messages(agent, response))
 
-    assert list(bedrock_agent.iterate_messages(agent, response)) == [
-        text_message,
-        tool_message,
-    ]
-    assert not bedrock_agent.is_function_call(agent, text_message)
-    assert bedrock_agent.is_function_call(agent, tool_message)
-    assert bedrock_agent.call_function(agent, text_message) == "ABC"
-    assert bedrock_agent.call_function(agent, tool_message) == 3
+    assert [message.block for message in messages] == [text_message, tool_message]
+    assert not bedrock_agent.is_function_call(agent, messages[0])
+    assert bedrock_agent.is_function_call(agent, messages[1])
+    assert bedrock_agent.normalize_message(agent, messages[0]).text == (
+        "<tool> custom(value='abc') </tool>"
+    )
+    normalized_tool = bedrock_agent.normalize_message(agent, messages[1])
+    assert normalized_tool.kind == "tool_call"
+    assert normalized_tool.tool_name == "direct"
+    assert normalized_tool.tool_args == {"x": 2}
+    assert normalized_tool.tool_id == "tool-id"
+    assert bedrock_agent.call_function(agent, messages[0]) == "ABC"
+    assert bedrock_agent.call_function(agent, messages[1]) == 3
     with pytest.raises(NotImplementedError):
-        bedrock_agent.call_function(agent, {"unsupported": True})
+        bedrock_agent.call_function(
+            agent,
+            bedrock_agent.BedrockMessage({"unsupported": True}),
+        )
 
 
 def test_bedrock_tool_responses_update_and_answer_extraction():
@@ -71,7 +86,10 @@ def test_bedrock_tool_responses_update_and_answer_extraction():
     }
     response = {"output": {"message": {"role": "assistant", "content": [{"text": "hi"}]}}}
 
-    assert bedrock_agent.make_tool_response(agent, tool_message, 3) == {
+    wrapped_tool_message = bedrock_agent.BedrockMessage(tool_message)
+    wrapped_text_message = bedrock_agent.BedrockMessage({"text": "custom"})
+
+    assert bedrock_agent.make_tool_response(agent, wrapped_tool_message, 3) == {
         "role": "user",
         "content": [
             {
@@ -82,7 +100,7 @@ def test_bedrock_tool_responses_update_and_answer_extraction():
             }
         ],
     }
-    assert bedrock_agent.make_tool_response(agent, {"text": "custom"}, "ok") == {
+    assert bedrock_agent.make_tool_response(agent, wrapped_text_message, "ok") == {
         "role": "user",
         "content": [{"text": "Output of tool call: ok"}],
     }

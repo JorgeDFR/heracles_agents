@@ -13,8 +13,10 @@ from anthropic.types.tool_use_block import ToolUseBlock
 from heracles_agents.agent_functions import (
     call_custom_tool_from_string,
     extract_tag,
+    get_tool_function,
 )
 from heracles_agents.llm_agent import LlmAgent
+from heracles_agents.normalized_response import NormalizedMessage
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.anthropic.anthropic_client import (
     AnthropicClientConfig,
@@ -44,8 +46,7 @@ def call_function(agent: LlmAgent[AnthropicClientConfig], tool_message: ToolUseB
     available_tools = agent.agent_info.tools
     name = tool_message.name
     args = tool_message.input
-    # TODO: verify legal tool name
-    return available_tools[name].function(**args)
+    return get_tool_function(available_tools, name)(**args)
 
 
 @dispatch
@@ -117,6 +118,36 @@ def get_text_body(message: ToolUseBlock):
 @dispatch
 def get_text_body(block: TextBlock):
     return block.text
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[AnthropicClientConfig], message: Message):
+    return NormalizedMessage(
+        kind="assistant_text",
+        text=get_text_body(message),
+        raw=message,
+    )
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[AnthropicClientConfig], message: ToolUseBlock):
+    return NormalizedMessage(
+        kind="tool_call",
+        text=get_text_body(message),
+        tool_name=message.name,
+        tool_args=message.input,
+        tool_id=message.id,
+        raw=message,
+    )
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[AnthropicClientConfig], message: TextBlock):
+    return NormalizedMessage(
+        kind="assistant_text",
+        text=message.text,
+        raw=message,
+    )
 
 
 @dispatch

@@ -8,10 +8,23 @@ from plum import dispatch
 
 from heracles_agents.custom_tool_call_parser import lark_parse_tool
 from heracles_agents.llm_agent import LlmAgent
+from heracles_agents.normalized_response import NormalizedMessage
 from heracles_agents.prompt import Prompt
 from heracles_agents.token_utils import get_token_encoder
+from heracles_agents.tool_rendering import render_custom_tool
 
 logger = logging.getLogger(__name__)
+
+
+def build_custom_tool_prompt(tools):
+    tool_command = """The following tools can be used to help formulate your answer.
+To call a tool, respond with the tool name and arguments between the <tool> and </tool> tags (XML-style format).
+Example: <tool> tool_name(arg1=1,arg2=2,arg3='3') </tool>
+    You can use tool calls multiple times in a conversation, however only a single tool call per message.
+"""
+    for tool in tools:
+        tool_command += render_custom_tool(tool)
+    return tool_command
 
 
 def call_custom_tool_from_string(tools, tool_string):
@@ -26,7 +39,14 @@ def call_custom_tool_from_string(tools, tool_string):
         if isinstance(v, str):
             function_call.args[k] = v.encode("utf-8").decode("unicode_escape")
 
-    return tools[function_call.name].function(**function_call.args)
+    return get_tool_function(tools, function_call.name)(**function_call.args)
+
+
+def get_tool_function(tools, name):
+    if name not in tools:
+        available = ", ".join(sorted(tools)) or "none"
+        raise ValueError(f"Unknown tool {name!r}. Available tools: {available}")
+    return tools[name].function
 
 
 @dispatch
@@ -58,21 +78,66 @@ def is_function_call(agent, message):
 
 
 @dispatch
+def is_answer_tool_call(agent, message):
+    prompt_settings = getattr(getattr(agent, "agent_info", None), "prompt_settings", None)
+    return (
+        getattr(prompt_settings, "output_type", None) == "SLDP_TOOL"
+        and getattr(message, "name", None) == "sldp_answer_tool"
+        and hasattr(message, "input")
+    )
+
+
+@dispatch
+def get_answer_tool_payload(agent, message):
+    if hasattr(message, "input"):
+        return message.input
+    raise NotImplementedError(
+        f"get_answer_tool_payload not implemented for agent type {type(agent)}, message type {type(message)}. Message: {message}"
+    )
+
+
+@dispatch
 def get_text_body(message: dict):
-    # TODO: it would be better to not need this class and
-    # instead wrap Bedrock responses in a type
     if "text" in message:
         return message["text"]
     elif "content" in message:
         return message["content"]
-    elif "toolUse" in message:
-        t = message["toolUse"]["name"] + "("
-        for k, v in message["toolUse"]["input"].items():
-            t += f"{k}={v},"
-        t += ")"
-        return t
     else:
         raise NotImplementedError(f"get_text_body not implemented for dict: {message}")
+
+
+@dispatch
+def get_text_body(message: NormalizedMessage):
+    return message.text
+
+
+@dispatch
+def normalize_message(agent, message: NormalizedMessage):
+    return message
+
+
+@dispatch
+def normalize_message(agent, message: dict):
+    if "role" in message and "content" in message:
+        content = message["content"]
+        if isinstance(content, str):
+            return NormalizedMessage(
+                kind="assistant_text",
+                text=f"{message['role']}: {content}",
+                raw=message,
+            )
+    if "type" in message and message["type"] == "function_call_output":
+        return NormalizedMessage(
+            kind="tool_result",
+            text=str(message.get("output", "")),
+            raw=message,
+        )
+    return NormalizedMessage(kind="unknown", text=str(message), raw=message)
+
+
+@dispatch
+def normalize_message(agent, message):
+    return NormalizedMessage(kind="assistant_text", text=get_text_body(message), raw=message)
 
 
 @dispatch

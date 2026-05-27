@@ -149,7 +149,17 @@ def distribute_disjunction(clause):
 
 @dispatch
 def distribute_disjunction(disjunction: Disjunction):
-    raise NotImplementedError("TODO")
+    ands = [c for c in disjunction.clauses if isinstance(c, Conjunction)]
+    if len(ands) == 0:
+        return False
+    rest = [c for c in disjunction.clauses if not isinstance(c, Conjunction)]
+
+    conjunction_to_pull = ands[0]
+
+    c1 = Disjunction(rest + ands[1:] + [conjunction_to_pull.clauses[0]])
+    c2 = Disjunction(rest + ands[1:] + conjunction_to_pull.clauses[1:])
+
+    return Conjunction([c1, c2])
 
 
 @dispatch
@@ -254,11 +264,8 @@ def evaluate(conjunction: Conjunction):
 
 @dispatch
 def evaluate(disjunction: Disjunction):
-    print("eval")
     bools = [b.value for b in disjunction.clauses if isinstance(b, Bool)]
-    print(bools)
     rest = [c for c in disjunction.clauses if not isinstance(c, Bool)]
-    print(rest)
     if len(bools) == 0:
         return False
     if True in bools:
@@ -287,13 +294,17 @@ def simplify_step(clause: Clause | Atomic):
     clause = try_fn(simplify_singleton_clause, clause)
     clause = try_fn(flatten_conjunction, clause)
     clause = try_fn(flatten_disjunction, clause)
+    clause = try_fn(simplify_contradiction, clause)
+    clause = try_fn(simplify_tautology, clause)
     clause = try_fn(evaluate, clause)
     return clause
 
 
 def simplify(clause):
-    # TODO: loop until no more changes
-    return simplify_step(clause)
+    new_clause = simplify_step(clause)
+    if not literal_equals(new_clause, clause):
+        return simplify(new_clause)
+    return clause
 
 
 def simplify_string(s):
@@ -328,7 +339,7 @@ def make_cnf_inner(clause):
 
 @dispatch
 def make_cnf_inner(clause: Clause | NegatedAtomic):
-    clause = fmap(partial(try_fn, make_dnf_inner), clause)
+    clause = fmap(partial(try_fn, make_cnf_inner), clause)
     clause = try_fn(simplify, clause)
     clause = try_fn(demorgan, clause)
     clause = try_fn(distribute_disjunction, clause)

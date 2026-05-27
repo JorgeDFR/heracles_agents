@@ -44,24 +44,23 @@ class AnthropicClientConfig(BaseSettings):
                 max_tokens=4096,
             )
 
-        # ----------------------------------------------------------
-        # TODO: Anthropic-specific exceptions
-        # ----------------------------------------------------------
-        # except anthropic.RateLimitError as ex:
-        #     raise LlmRateLimitError(str(ex)) from ex
+        except anthropic.RateLimitError as ex:
+            raise LlmRateLimitError(str(ex)) from ex
 
-        # except anthropic.APITimeoutError as ex:
-        #     raise LlmTimeoutError(str(ex)) from ex
+        except anthropic.APITimeoutError as ex:
+            raise LlmTimeoutError(str(ex)) from ex
 
-        # except anthropic.APIConnectionError as ex:
-        #     raise LlmConnectionError(str(ex)) from ex
+        except anthropic.APIConnectionError as ex:
+            raise LlmConnectionError(str(ex)) from ex
 
-        # except anthropic.BadRequestError as ex:
-        #     raise LlmBadRequestError(str(ex)) from ex
+        except anthropic.InternalServerError as ex:
+            raise LlmServiceUnavailableError(str(ex)) from ex
 
-        # except anthropic.AuthenticationError as ex:
-        #     raise LlmAuthenticationError(str(ex)) from ex
+        except anthropic.BadRequestError as ex:
+            raise LlmBadRequestError(str(ex)) from ex
+
+        except anthropic.AuthenticationError as ex:
+            raise LlmAuthenticationError(str(ex)) from ex
 
         except Exception as ex:
-            logger.exception("Unexpected Anthropic error")
-        raise LlmUnknownError(str(ex)) from ex
+            raise LlmUnknownError(str(ex)) from ex

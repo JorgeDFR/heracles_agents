@@ -9,6 +9,14 @@ from heracles_agents.tool_interface import (
     FunctionParameter,
     ToolDescription,
 )
+from heracles_agents.tool_rendering import (
+    render_anthropic_tool,
+    render_custom_parameter,
+    render_custom_tool,
+    render_ollama_tool,
+    render_parameter,
+    render_tool_for_interface,
+)
 
 
 class TestFunctionParameter:
@@ -18,20 +26,15 @@ class TestFunctionParameter:
         """Test FunctionParameter with string type."""
         param = FunctionParameter("name", str, "A string parameter")
 
-        # Test serialization methods
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {"name": {"type": "string", "description": "A string parameter"}}
         assert openai_result == expected
-
-        # Test that all serialization methods return the same result for basic types
-        assert param.to_anthropic() == openai_result
-        assert param.to_ollama() == openai_result
 
     def test_float_parameter(self):
         """Test FunctionParameter with float type."""
         param = FunctionParameter("value", float, "A float parameter")
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {"value": {"type": "number", "description": "A float parameter"}}
         assert openai_result == expected
 
@@ -39,7 +42,7 @@ class TestFunctionParameter:
         """Test FunctionParameter with int type."""
         param = FunctionParameter("count", int, "An integer parameter")
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {"count": {"type": "integer", "description": "An integer parameter"}}
         assert openai_result == expected
 
@@ -47,7 +50,7 @@ class TestFunctionParameter:
         """Test FunctionParameter with dict type."""
         param = FunctionParameter("config", dict, "A dictionary parameter")
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {
             "config": {"type": "object", "description": "A dictionary parameter"}
         }
@@ -57,7 +60,7 @@ class TestFunctionParameter:
         """Test FunctionParameter with set type."""
         param = FunctionParameter("tags", set, "A set parameter")
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {"tags": {"type": "array", "description": "A set parameter"}}
         assert openai_result == expected
 
@@ -65,7 +68,7 @@ class TestFunctionParameter:
         """Test FunctionParameter with list type."""
         param = FunctionParameter("items", list, "A list parameter")
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {"items": {"type": "array", "description": "A list parameter"}}
         assert openai_result == expected
 
@@ -79,7 +82,7 @@ class TestFunctionParameter:
             ["add", "subtract", "multiply", "divide"],
         )
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {
             "operation": {
                 "type": "string",
@@ -95,17 +98,16 @@ class TestFunctionParameter:
 
         assert param.required is False
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         expected = {
             "optional_param": {"type": "string", "description": "An optional parameter"}
         }
         assert openai_result == expected
 
     def test_custom_serialization(self):
-        """Test the to_custom method."""
         param = FunctionParameter("test_param", int, "A test parameter")
 
-        custom_result = param.to_custom()
+        custom_result = render_custom_parameter(param)
         expected = [
             "Param name: test_param",
             "Param description: A test parameter",
@@ -114,12 +116,11 @@ class TestFunctionParameter:
         assert custom_result == expected
 
     def test_custom_serialization_with_enum(self):
-        """Test the to_custom method with enum values."""
         param = FunctionParameter(
             "status", str, "The status", True, ["active", "inactive", "pending"]
         )
 
-        custom_result = param.to_custom()
+        custom_result = render_custom_parameter(param)
         expected = [
             "Param name: status",
             "Param description: The status",
@@ -145,7 +146,7 @@ class TestFunctionParameter:
             "test_param", param_type, f"A {param_type.__name__} parameter"
         )
 
-        openai_result = param.to_openai_responses()
+        openai_result = render_parameter(param)
         assert openai_result["test_param"]["type"] == expected_type_string
 
 
@@ -176,7 +177,7 @@ class TestToolDescriptionWithAllTypes:
         )
 
         # Test OpenAI serialization
-        openai_result = tool.to_openai_responses()
+        openai_result = render_tool_for_interface(tool, "openai")
 
         # Verify the structure
         assert openai_result["type"] == "function"
@@ -196,7 +197,7 @@ class TestToolDescriptionWithAllTypes:
         assert set(required) == {"name", "count", "value", "config", "tags", "items"}
 
         # Test Anthropic serialization
-        anthropic_result = tool.to_anthropic()
+        anthropic_result = render_anthropic_tool(tool)
         assert anthropic_result["name"] == "multi_type_tool"
         assert (
             anthropic_result["description"] == "A tool that accepts all parameter types"
@@ -211,7 +212,7 @@ class TestToolDescriptionWithAllTypes:
         assert anthropic_properties["items"]["type"] == "array"
 
         # Test Ollama serialization
-        ollama_result = tool.to_ollama()
+        ollama_result = render_ollama_tool(tool)
         assert ollama_result["type"] == "function"
         assert ollama_result["function"]["name"] == "multi_type_tool"
         assert (
@@ -228,7 +229,7 @@ class TestToolDescriptionWithAllTypes:
         assert ollama_properties["items"]["type"] == "array"
 
         # Test custom serialization
-        custom_result = tool.to_custom()
+        custom_result = render_custom_tool(tool)
         assert "Function name: multi_type_tool" in custom_result
         assert (
             "Function Description: A tool that accepts all parameter types"
@@ -261,7 +262,7 @@ class TestToolDescriptionWithAllTypes:
             function=mixed_tool,
         )
 
-        openai_result = tool.to_openai_responses()
+        openai_result = render_tool_for_interface(tool, "openai")
 
         # Only required_str should be in the required list
         required = openai_result["parameters"]["required"]
@@ -273,3 +274,22 @@ class TestToolDescriptionWithAllTypes:
         assert "optional_int" in properties
         assert properties["required_str"]["type"] == "string"
         assert properties["optional_int"]["type"] == "integer"
+
+
+def test_render_tool_for_interface_dispatches_to_provider_renderer():
+    def tool_fn(value: str):
+        return value
+
+    tool = ToolDescription(
+        name="echo",
+        description="Echo",
+        parameters=[FunctionParameter("value", str, "Value")],
+        function=tool_fn,
+    )
+    assert render_tool_for_interface(tool, "openai")["name"] == "echo"
+    assert render_tool_for_interface(tool, "anthropic")["name"] == "echo"
+    assert render_tool_for_interface(tool, "ollama")["function"]["name"] == "echo"
+    assert render_tool_for_interface(tool, "bedrock")["toolSpec"]["name"] == "echo"
+    assert render_tool_for_interface(tool, "openrouter")["function"]["name"] == "echo"
+    with pytest.raises(NotImplementedError):
+        render_tool_for_interface(tool, "unknown")

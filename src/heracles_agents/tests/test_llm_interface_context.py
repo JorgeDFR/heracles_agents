@@ -12,6 +12,7 @@ from heracles_agents.llm_interface import (
     needs_tool_processing,
     process_answer,
 )
+from heracles_agents.normalized_response import NormalizedMessage
 
 
 def make_agent(**overrides):
@@ -35,7 +36,7 @@ def test_process_answer_uses_custom_tool_input_for_structured_output(monkeypatch
         id="id",
         call_id="call",
         input="<answer>2</answer>",
-        name="answer",
+        name="sldp_answer_tool",
         type="custom_tool_call",
     )
     agent = make_agent(
@@ -45,6 +46,9 @@ def test_process_answer_uses_custom_tool_input_for_structured_output(monkeypatch
     assert process_answer(agent, message) == "<answer>2</answer>"
     assert is_answer_tool_call(agent, message)
     assert not needs_tool_processing(agent, message)
+
+    wrong_tool = message.model_copy(update={"name": "other_tool"})
+    assert not is_answer_tool_call(agent, wrong_tool)
 
 
 def test_process_answer_falls_back_to_extractor(monkeypatch):
@@ -84,6 +88,29 @@ def test_agent_context_initialize_and_call_llm_retries(monkeypatch):
     assert calls[-1][1:] == (["tool"], "text", ["hello"])
 
 
+def test_agent_context_call_llm_uses_model_response_format(monkeypatch):
+    calls = []
+
+    def call(model_info, tools, response_format, history):
+        calls.append(response_format)
+        return "ok"
+
+    agent = make_agent(
+        model_info=SimpleNamespace(
+            model="model",
+            temperature=0.1,
+            response_format="json",
+        ),
+        client=SimpleNamespace(call=call),
+    )
+    context = AgentContext(agent)
+
+    monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda agent_info: [])
+
+    assert context.call_llm(["history"]) == "ok"
+    assert calls == ["json"]
+
+
 def test_agent_context_call_llm_raises_after_retries(monkeypatch):
     agent = make_agent(client=SimpleNamespace(call=lambda *args: (_ for _ in ()).throw(LlmRateLimitError("limited"))))
     context = AgentContext(agent)
@@ -102,7 +129,14 @@ def test_agent_context_handle_response_processes_only_tool_messages(monkeypatch)
 
     monkeypatch.setattr(llm_interface, "iterate_messages", lambda agent, response: messages)
     monkeypatch.setattr(llm_interface, "count_message_tokens", lambda agent, message: 2)
-    monkeypatch.setattr(llm_interface, "get_text_body", lambda message: str(message))
+    monkeypatch.setattr(
+        llm_interface,
+        "normalize_message",
+        lambda agent, message: NormalizedMessage(
+            kind="assistant_text",
+            text=str(message),
+        ),
+    )
     monkeypatch.setattr(llm_interface, "needs_tool_processing", lambda agent, message: message == "tool-call")
     monkeypatch.setattr(llm_interface, "call_function", lambda agent, message: "result")
     monkeypatch.setattr(
@@ -148,7 +182,7 @@ def test_agent_context_run_stops_when_step_done_and_processes_answer(monkeypatch
     agent = make_agent(agent_info=SimpleNamespace(max_iterations=3, prompt_settings=SimpleNamespace(output_type="SLDP")))
     context = AgentContext(agent)
     context.history = ["history"]
-    step_results = iter([False, True])
+    step_results = iter([(True, False), (True, True)])
 
     monkeypatch.setattr(context, "step", lambda: next(step_results))
     monkeypatch.setattr(llm_interface, "process_answer", lambda agent, message: "answer")
@@ -160,6 +194,15 @@ def test_agent_context_run_returns_no_answer_when_not_done(monkeypatch):
     agent = make_agent(agent_info=SimpleNamespace(max_iterations=2, prompt_settings=SimpleNamespace(output_type="SLDP")))
     context = AgentContext(agent)
 
-    monkeypatch.setattr(context, "step", lambda: False)
+    monkeypatch.setattr(context, "step", lambda: (True, False))
+
+    assert context.run() == (False, None)
+
+
+def test_agent_context_run_returns_no_answer_when_step_fails(monkeypatch):
+    agent = make_agent(agent_info=SimpleNamespace(max_iterations=2, prompt_settings=SimpleNamespace(output_type="SLDP")))
+    context = AgentContext(agent)
+
+    monkeypatch.setattr(context, "step", lambda: (False, False))
 
     assert context.run() == (False, None)

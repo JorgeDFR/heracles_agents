@@ -14,6 +14,7 @@ import heracles_agents.provider_integrations.openai.openai_agent_integration as 
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openai.openai_client import OpenaiClientConfig
+from heracles_agents.tool_interface import FunctionParameter, ToolDescription
 
 
 def make_openai_agent(**agent_info_overrides):
@@ -71,7 +72,12 @@ def make_message(text):
 
 
 def test_openai_generate_prompt_adds_custom_tool_descriptions():
-    tool = SimpleNamespace(to_custom=lambda: "Function name: echo\n")
+    tool = ToolDescription(
+        name="echo",
+        description="Echo",
+        parameters=[FunctionParameter("value", str, "Value")],
+        function=lambda value: value,
+    )
     agent = make_openai_agent(tool_interface="custom", tools={"echo": tool})
 
     prompt = openai_agent.generate_prompt_for_agent(
@@ -116,6 +122,17 @@ def test_openai_message_iteration_and_text_extraction():
     assert openai_agent.get_text_body(reasoning) == ""
     assert openai_agent.get_text_body(response) == "hello\ntool({\"x\": 1})\ncustom_tool(payload)\n"
 
+    normalized_message = openai_agent.normalize_message(agent, message)
+    normalized_tool = openai_agent.normalize_message(agent, function_call)
+    normalized_reasoning = openai_agent.normalize_message(agent, reasoning)
+    assert normalized_message.kind == "assistant_text"
+    assert normalized_message.text == "hello"
+    assert normalized_tool.kind == "tool_call"
+    assert normalized_tool.tool_name == "tool"
+    assert normalized_tool.tool_args == {"x": 1}
+    assert normalized_tool.tool_id == "call"
+    assert normalized_reasoning.kind == "reasoning"
+
 
 def test_openai_function_and_custom_tool_calls():
     direct_tool = SimpleNamespace(function=lambda x: x + 1)
@@ -144,6 +161,25 @@ def test_openai_function_and_custom_tool_calls():
         "role": "user",
         "content": "Output of tool call: ABC",
     }
+
+
+def test_openai_answer_tool_normalizes_as_answer_tool():
+    agent = make_openai_agent(
+        prompt_settings=SimpleNamespace(output_type="SLDP_TOOL"),
+    )
+    custom_call = ResponseCustomToolCall(
+        id="custom",
+        call_id="call",
+        input="payload",
+        name="sldp_answer_tool",
+        type="custom_tool_call",
+    )
+
+    normalized = openai_agent.normalize_message(agent, custom_call)
+
+    assert normalized.kind == "answer_tool"
+    assert normalized.tool_name == "sldp_answer_tool"
+    assert normalized.tool_id == "call"
 
 
 def test_openai_update_and_answer_extraction():

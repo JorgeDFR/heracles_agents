@@ -15,10 +15,13 @@ from openai.types.responses.response_output_message import ResponseOutputMessage
 from openai.types.responses.response_reasoning_item import ResponseReasoningItem
 
 from heracles_agents.agent_functions import (
+    build_custom_tool_prompt,
     call_custom_tool_from_string,
     extract_tag,
+    get_tool_function,
 )
 from heracles_agents.llm_agent import LlmAgent
+from heracles_agents.normalized_response import NormalizedMessage
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openai.openai_client import (
     OpenaiClientConfig,
@@ -31,16 +34,7 @@ logger = logging.getLogger(__name__)
 def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[OpenaiClientConfig]):
     p = copy.deepcopy(prompt)
     if agent.agent_info.tool_interface == "custom":
-        # TODO: centralize custom tool prompt logic
-        tool_command = """The following tools can be used to help formulate your answer.
-To call a tool, responde with the tool name and arguments between the <tool> and </tool> tags (XML-style format).
-Example: <tool> tool_name(arg1=1,arg2=2,arg3='3') </tool>
-You can use tool calls multiple times in a conversation, however only a single tool call per message.
-"""
-        for tool in agent.agent_info.tools.values():
-            d = tool.to_custom()
-            tool_command += d
-        p.tool_description = tool_command
+        p.tool_description = build_custom_tool_prompt(agent.agent_info.tools.values())
     return p.to_openai_json()
 
 
@@ -60,15 +54,31 @@ def is_function_call(agent: LlmAgent[OpenaiClientConfig], message):
 
 
 @dispatch
+def is_answer_tool_call(
+    agent: LlmAgent[OpenaiClientConfig], message: ResponseCustomToolCall
+):
+    return (
+        agent.agent_info.prompt_settings.output_type == "SLDP_TOOL"
+        and message.name == "sldp_answer_tool"
+    )
+
+
+@dispatch
+def get_answer_tool_payload(
+    agent: LlmAgent[OpenaiClientConfig], message: ResponseCustomToolCall
+):
+    return message.input
+
+
+@dispatch
 def call_function(
     agent: LlmAgent[OpenaiClientConfig], tool_message: ResponseFunctionToolCall
 ):
     available_tools = agent.agent_info.tools
     name = tool_message.name
     args = json.loads(tool_message.arguments)
-    # TODO: verify legal tool name
     logger.debug(f"Calling function {name} {args}")
-    result = available_tools[name].function(**args)
+    result = get_tool_function(available_tools, name)(**args)
     logger.debug(f"Result {result}")
     return result
 
@@ -147,6 +157,64 @@ def get_text_body(message: ResponseReasoningItem):
 @dispatch
 def get_text_body(tool_call: ResponseCustomToolCall):
     return f"{tool_call.name}({tool_call.input})"
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[OpenaiClientConfig], response: Response):
+    return NormalizedMessage(
+        kind="assistant_text",
+        text=get_text_body(response),
+        raw=response,
+    )
+
+
+@dispatch
+def normalize_message(agent: LlmAgent[OpenaiClientConfig], message: ResponseOutputMessage):
+    return NormalizedMessage(
+        kind="assistant_text",
+        text=get_text_body(message),
+        raw=message,
+    )
+
+
+@dispatch
+def normalize_message(
+    agent: LlmAgent[OpenaiClientConfig], tool_call: ResponseFunctionToolCall
+):
+    args = json.loads(tool_call.arguments)
+    return NormalizedMessage(
+        kind="tool_call",
+        text=get_text_body(tool_call),
+        tool_name=tool_call.name,
+        tool_args=args,
+        tool_id=tool_call.call_id,
+        raw=tool_call,
+    )
+
+
+@dispatch
+def normalize_message(
+    agent: LlmAgent[OpenaiClientConfig], message: ResponseReasoningItem
+):
+    return NormalizedMessage(
+        kind="reasoning",
+        text=get_text_body(message),
+        raw=message,
+    )
+
+
+@dispatch
+def normalize_message(
+    agent: LlmAgent[OpenaiClientConfig], tool_call: ResponseCustomToolCall
+):
+    kind = "answer_tool" if is_answer_tool_call(agent, tool_call) else "tool_call"
+    return NormalizedMessage(
+        kind=kind,
+        text=get_text_body(tool_call),
+        tool_name=tool_call.name,
+        tool_id=tool_call.call_id,
+        raw=tool_call,
+    )
 
 
 @dispatch

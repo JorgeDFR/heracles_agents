@@ -56,6 +56,9 @@ def generate_prompt(
 def incontext_dsg(exp):
     analyzed_questions = []
     for question in exp.questions:
+        answer = None
+        sequences = []
+        completed = False
         try:
             cxt = AgentContext(exp.phases["main"])
 
@@ -68,6 +71,7 @@ def incontext_dsg(exp):
             sequence = AgentSequence(
                 description="in-context pipeline", responses=cxt.get_agent_responses()
             )
+            sequences.append(sequence)
 
             valid_format, correct = evaluate_answer(
                 question.correctness_comparator, answer, question.solution
@@ -82,6 +86,7 @@ def incontext_dsg(exp):
                 output_tokens=cxt.total_output_tokens,
                 n_tool_calls=cxt.n_tool_calls,
             )
+            completed = True
 
         except Exception as ex:
             print(ex)
@@ -96,7 +101,11 @@ def incontext_dsg(exp):
             )
 
         aq = AnalyzedQuestion(
-            question=question, answer=answer, sequences=[sequence], analysis=analysis
+            question=question,
+            answer=answer,
+            sequences=sequences,
+            analysis=analysis,
+            completed=completed,
         )
         analyzed_questions.append(aq)
 

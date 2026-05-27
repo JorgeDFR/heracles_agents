@@ -5,13 +5,19 @@ import logging
 import tiktoken
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from plum import dispatch
 
 from heracles_agents.agent_functions import (
+    build_custom_tool_prompt,
     call_custom_tool_from_string,
     extract_tag,
+    get_tool_function,
+    get_text_body,
+    normalize_message,
 )
 from heracles_agents.llm_agent import LlmAgent
+from heracles_agents.normalized_response import NormalizedMessage
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.bedrock.bedrock_client import (
     BedrockClientConfig,
@@ -20,64 +26,60 @@ from heracles_agents.provider_integrations.bedrock.bedrock_client import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class BedrockMessage:
+    block: dict
+
+    def __contains__(self, key):
+        return key in self.block
+
+    def __getitem__(self, key):
+        return self.block[key]
+
+
 @dispatch
 def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[BedrockClientConfig]):
     p = copy.deepcopy(prompt)
 
     if agent.agent_info.tool_interface == "custom":
-        # TODO: centralize custom tool prompt logic
-        tool_command = """The following tools can be used to help formulate your answer.
-To call a tool, responde with the tool name and arguments between the <tool> and </tool> tags (XML-style format).
-Example: <tool> tool_name(arg1=1,arg2=2,arg3='3') </tool>
-You can use tool calls multiple times in a conversation, however only a single tool call per message.
-"""
-        for tool in agent.agent_info.tools.values():
-            d = tool.to_custom()
-            tool_command += d
-        p.tool_description = tool_command
+        p.tool_description = build_custom_tool_prompt(agent.agent_info.tools.values())
     return p.to_bedrock_json()
 
 
 @dispatch
 def iterate_messages(agent: LlmAgent[BedrockClientConfig], response_dict: dict):
     for m in response_dict["output"]["message"]["content"]:
-        yield m
+        yield BedrockMessage(m)
 
 
 @dispatch
-def is_function_call(agent: LlmAgent[BedrockClientConfig], message: dict):
-    """is_function_call should return true for messages that can be passed to call_function below"""
-    print("bedrock is_function_call message: ", message)
-    if "toolUse" in message:
-        return True
-    return False
+def is_function_call(agent: LlmAgent[BedrockClientConfig], message: BedrockMessage):
+    return "toolUse" in message.block
 
 
 @dispatch
-def call_function(agent: LlmAgent[BedrockClientConfig], tool_message: dict):
+def call_function(agent: LlmAgent[BedrockClientConfig], tool_message: BedrockMessage):
     available_tools = agent.agent_info.tools
-    if "text" in tool_message:
-        tool_string = extract_tag("tool", tool_message["text"])
+    if "text" in tool_message.block:
+        tool_string = extract_tag("tool", tool_message.block["text"])
         return call_custom_tool_from_string(available_tools, tool_string)
-    elif "toolUse" in tool_message:
-        name = tool_message["toolUse"]["name"]
-        # args = json.loads(tool_message["toolUse"]["input"])
-        args = tool_message["toolUse"]["input"]
-        # TODO: verify legal tool name
-        return available_tools[name].function(**args)
+    elif "toolUse" in tool_message.block:
+        name = tool_message.block["toolUse"]["name"]
+        args = tool_message.block["toolUse"]["input"]
+        return get_tool_function(available_tools, name)(**args)
     else:
         raise NotImplementedError(
-            f"Don't know how to call function from: {tool_message}"
+            f"Don't know how to call function from: {tool_message.block}"
         )
 
 
 @dispatch
 def make_tool_response(
     agent: LlmAgent[BedrockClientConfig],
-    tool_call_message: dict,
+    tool_call_message: BedrockMessage,
     result,
 ):
-    if "toolUse" in tool_call_message:
+    if "toolUse" in tool_call_message.block:
         if not isinstance(result, str):
             result = str(result)
         m = {
@@ -85,7 +87,7 @@ def make_tool_response(
             "content": [
                 {
                     "toolResult": {
-                        "toolUseId": tool_call_message["toolUse"]["toolUseId"],
+                        "toolUseId": tool_call_message.block["toolUse"]["toolUseId"],
                         "content": [{"text": result}],
                     }
                 }
@@ -116,35 +118,41 @@ def extract_answer(
         return ""
 
 
-#
-#
-# @dispatch
-# def get_text_body(response: Response):
-#    return "\n".join([get_text_body(m) for m in response.output])
-#
-#
-# @dispatch
-# def get_text_body(message: ResponseOutputMessage):
-#    return "\n".join([c.text for c in message.content])
-#
-#
-# @dispatch
-# def get_text_body(tool_call: ResponseFunctionToolCall):
-#    return f"{tool_call.name}({tool_call.arguments})"
-#
-#
-# @dispatch
-# def get_text_body(message: ResponseReasoningItem):
-#    if message.content is None:
-#        return None
-#    return "\n".join(c.text for c in message.content)
-#
-#
-# @dispatch
-# def get_text_body(tool_call: ResponseCustomToolCall):
-#    return f"{tool_call.name}({tool_call.input})"
-#
-#
+@dispatch
+def normalize_message(agent, message: BedrockMessage):
+    if "text" in message.block:
+        return NormalizedMessage(
+            kind="assistant_text",
+            text=message.block["text"],
+            raw=message.block,
+        )
+    if "toolUse" in message.block:
+        tool_use = message.block["toolUse"]
+        return NormalizedMessage(
+            kind="tool_call",
+            text=f"{tool_use['name']}({tool_use['input']})",
+            tool_name=tool_use["name"],
+            tool_args=tool_use["input"],
+            tool_id=tool_use.get("toolUseId"),
+            raw=message.block,
+        )
+    return NormalizedMessage(kind="unknown", text=str(message.block), raw=message.block)
+
+
+@dispatch
+def get_text_body(message: BedrockMessage):
+    return normalize_message(None, message).text
+
+
+@dispatch
+def get_bedrock_block_summary(message: BedrockMessage):
+    return get_text_body(message)
+
+
+@dispatch
+def get_bedrock_block_summary(message: dict):
+    return get_text_body(BedrockMessage(message))
+
 
 
 @dispatch
@@ -181,3 +189,8 @@ def count_message_tokens(agent: LlmAgent[BedrockClientConfig], message: dict):
         return total
     else:
         raise NotImplementedError("Not sure how to process message: ", message)
+
+
+@dispatch
+def count_message_tokens(agent: LlmAgent[BedrockClientConfig], message: BedrockMessage):
+    return count_message_tokens(agent, message.block)

@@ -20,12 +20,13 @@ from heracles.utils import load_dsg_to_db
 
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.llm_interface import AgentContext
+from heracles_agents.agent_functions import build_custom_tool_prompt
 
 # ------------------------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------------------------
 
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------
@@ -56,8 +57,8 @@ def generate_initial_prompt(agent_config: LlmAgent):
     prompt = copy.deepcopy(agent_config.agent_info.prompt_settings.base_prompt)
 
     if agent_config.agent_info.tool_interface == "custom":
-        prompt.tool_description = "\n".join(
-            [t.to_custom() for t in agent_config.agent_info.tools.values()]
+        prompt.tool_description = build_custom_tool_prompt(
+            agent_config.agent_info.tools.values()
         )
 
     return prompt

@@ -34,8 +34,13 @@ def query_db(cypher_string, dsgdb_conf: HeraclesDsgInterface = None):
             return query_result
 
 
-# TODO: we need to warp the query_db in another function that takes only the cypher string, and not the dsgdb_conf
-# Probably need to have the experiment runner automatically insert the experiment description into the tool call?
+def bind_query_db(dsgdb_conf: HeraclesDsgInterface):
+    def run_cypher_query(cypher_string):
+        return query_db(cypher_string, dsgdb_conf=dsgdb_conf)
+
+    return run_cypher_query
+
+
 cypher_tool = ToolDescription(
     name="run_cypher_query",
     description="An interface for running Cypher queries on a Neo4j database containing a 3D Scene Graph.",

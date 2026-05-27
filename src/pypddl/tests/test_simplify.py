@@ -115,3 +115,14 @@ def test_evaluation():
 
     assert_step_equals(try_eval, "(and True ?a)", "(and ?a)")
     assert_step_equals(try_eval, "(and False ?a)", "False")
+
+
+def test_simplify_reaches_fixed_point():
+    assert_step_equals(
+        try_simplify,
+        "(and True (and ?a) (or False ?b))",
+        "(and ?a ?b)",
+    )
+    assert_step_equals(try_simplify, "(and ?a True)", "?a")
+    assert_step_equals(try_simplify, "(or ?a (not ?a) ?b)", "True")
+    assert_step_equals(try_simplify, "(and ?a (not ?a) ?b)", "False")

@@ -1,5 +1,7 @@
 # Heracles Agents
 
+>**Note:** This is a fork of the upstream Heracles Agents framework. This fork preserves the original lightweight agent architecture while adding experimental tooling, providers, and experiments for robotics and spatial reasoning research.
+
 `heracles_agents` is a minimal agentic LLM framework. It has been developed
 with a focus on the following priorities:
 
@@ -112,7 +114,22 @@ must be set.
 
 ### Experiment Pipelines
 
-TODO
+The experiment runner can execute configured question sets against one or more
+agent/prompt/model combinations and write structured results for later
+comparison. Example configurations live under
+[examples/experiments](examples/experiments), with provider-specific variants
+for OpenAI, OpenRouter, Ollama, Anthropic, and Bedrock.
+
+To run an experiment, install the package, configure the relevant provider API
+key or local service, then pass an experiment YAML file to the runner:
+
+```bash
+python examples/experiment_runner.py examples/experiments/openai/cypher_experiment.yaml
+```
+
+The prompt templates used by those configurations are under
+[examples/prompts](examples/prompts), and example question sets are under
+[examples/questions](examples/questions).
 
 
 ## Custom Tools

@@ -7,6 +7,7 @@ from heracles_agents.experiment_definition import (
     PipelinePhase,
     register_pipeline,
 )
+from heracles_agents.agent_functions import build_custom_tool_prompt
 from heracles_agents.llm_interface import (
     AgentContext,
     AgentSequence,
@@ -38,8 +39,8 @@ def generate_prompt(
         prompt.set_api_prompt(api_prompt)
 
     if agent_config.agent_info.tool_interface == "custom":
-        prompt.tool_description = "\n".join(
-            [t.to_custom() for t in agent_config.agent_info.tools]
+        prompt.tool_description = build_custom_tool_prompt(
+            agent_config.agent_info.tools.values()
         )
 
     try:
@@ -59,11 +60,8 @@ def generate_prompt(
     return prompt
 
 
-# TODO update this function here
 def feedforward_codegen(exp):
     analyzed_questions = []
-    # Note this won't work for inserting into the scene graph. To do that a copy.deepcopy will be needed in the loop (not including for efficiency, since loading the scene graph is slow)
-    # TODO modify experiment config to include this)
     dsg_filepath = os.path.expandvars(exp.dsg_interface.dsg_filepath)
     dsg_labels_filepath = (
         os.path.expandvars(exp.dsg_interface.dsg_labels_filepath)
@@ -72,11 +70,18 @@ def feedforward_codegen(exp):
         else None
     )
     scene_graph = load_dsg(dsg_filepath, dsg_labels_filepath)
+    copy_dsg_per_question = getattr(exp.dsg_interface, "copy_dsg_per_question", False)
     # Set api in prompt
     api_string = exp.dsg_interface.get_dsg_api_prompt()
     for question in exp.questions:
+        answer = None
+        sequences = []
+        completed = False
         try:
             logger.info(f"\n=======================\nQuestion: {question.question}\n")
+            question_scene_graph = (
+                copy.deepcopy(scene_graph) if copy_dsg_per_question else scene_graph
+            )
             cxt = AgentContext(exp.phases["generate-code"])
 
             prompt = generate_prompt(
@@ -85,14 +90,16 @@ def feedforward_codegen(exp):
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()
+            if not success:
+                raise RuntimeError("Code generation agent failed before producing code")
             logger.info(f"\nLLM Intermediate Answer: {answer}\n")
 
             codgen_sequence = AgentSequence(
                 description="codegen-agent", responses=cxt.get_agent_responses()
             )
+            sequences.append(codgen_sequence)
 
-            # TODO udpate this
-            success, code_results = execute_generated_code(answer, scene_graph)
+            success, code_results = execute_generated_code(answer, question_scene_graph)
 
             cxt2 = AgentContext(exp.phases["refine"])
             refinement_prompt = generate_prompt(
@@ -103,6 +110,8 @@ def feedforward_codegen(exp):
 
             cxt2.initialize_agent(refinement_prompt)
             success, answer = cxt2.run()
+            if not success:
+                raise RuntimeError("Refinement agent failed before producing an answer")
             logger.info(f"LLM Final Answer: {answer}")
 
             valid_format, correct = evaluate_answer(
@@ -114,8 +123,7 @@ def feedforward_codegen(exp):
             refinement_sequence = AgentSequence(
                 description="refinement-agent", responses=cxt2.get_agent_responses()
             )
-
-            sequences = [codgen_sequence, refinement_sequence]
+            sequences.append(refinement_sequence)
 
             n_input_tokens = cxt.initial_input_tokens + cxt2.initial_input_tokens
             n_output_tokens = cxt.total_output_tokens + cxt2.total_output_tokens
@@ -127,6 +135,7 @@ def feedforward_codegen(exp):
                 output_tokens=n_output_tokens,
                 n_tool_calls=cxt.n_tool_calls + cxt2.n_tool_calls,
             )
+            completed = True
         except Exception as ex:
             print(ex)
             logger.error("Bad Question!")
@@ -140,7 +149,11 @@ def feedforward_codegen(exp):
             )
 
         aq = AnalyzedQuestion(
-            question=question, answer=answer, sequences=sequences, analysis=analysis
+            question=question,
+            answer=answer,
+            sequences=sequences,
+            analysis=analysis,
+            completed=completed,
         )
         analyzed_questions.append(aq)
 

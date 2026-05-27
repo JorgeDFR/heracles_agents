@@ -72,7 +72,6 @@ class OpenaiClientConfig(BaseSettings):
         # Unknown
         # ------------------------------------------------------------------
         except Exception as ex:
-            logger.exception("Unexpected OpenAI provider error")
             raise LlmUnknownError(str(ex)) from ex
 
 

@@ -1,6 +1,7 @@
 import copy
 import logging
 
+from heracles_agents.agent_functions import build_custom_tool_prompt
 from heracles_agents.experiment_definition import (
     PipelineDescription,
     PipelinePhase,
@@ -31,8 +32,8 @@ def generate_prompt(
     if api_prompt:
         prompt.set_api_prompt(api_prompt)
     if agent_config.agent_info.tool_interface == "custom":
-        prompt.tool_description = "\n".join(
-            [t.to_custom() for t in agent_config.agent_info.tools.values()]
+        prompt.tool_description = build_custom_tool_prompt(
+            agent_config.agent_info.tools.values()
         )
 
     try:
@@ -59,6 +60,9 @@ def agentic_pipeline(exp):
         api_string = exp.dsg_interface.get_dsg_api_prompt()
 
     for question in exp.questions:
+        answer = None
+        sequences = []
+        completed = False
         try:
             logger.info(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["main"])
@@ -80,6 +84,7 @@ def agentic_pipeline(exp):
             agent_sequence = AgentSequence(
                 description="cypher-agent", responses=cxt.get_agent_responses()
             )
+            sequences.append(agent_sequence)
 
             analysis = QuestionAnalysis(
                 correct=correct,
@@ -88,6 +93,7 @@ def agentic_pipeline(exp):
                 output_tokens=cxt.total_output_tokens,
                 n_tool_calls=cxt.n_tool_calls,
             )
+            completed = True
 
         except Exception as ex:
             print(ex)
@@ -104,8 +110,9 @@ def agentic_pipeline(exp):
         aq = AnalyzedQuestion(
             question=question,
             answer=answer,
-            sequences=[agent_sequence],
+            sequences=sequences,
             analysis=analysis,
+            completed=completed,
         )
         analyzed_questions.append(aq)
 

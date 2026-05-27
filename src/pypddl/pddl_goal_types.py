@@ -75,7 +75,9 @@ def literal_equals(a, b):
 
 @dispatch
 def literal_equals(a: list, b: list):
-    return all(literal_equals(_a, _b) for _a, _b in zip(a, b))
+    return len(a) == len(b) and all(
+        literal_equals(_a, _b) for _a, _b in zip(a, b)
+    )
 
 
 @dispatch

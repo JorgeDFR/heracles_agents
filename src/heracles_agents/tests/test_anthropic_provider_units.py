@@ -1,11 +1,23 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import anthropic
+import httpx
+import pytest
 from anthropic.types.message import Message
 from anthropic.types.text_block import TextBlock
 from anthropic.types.tool_use_block import ToolUseBlock
 
 import heracles_agents.provider_integrations.anthropic.anthropic_agent_integration as anthropic_agent
+from heracles_agents.exceptions import (
+    LlmAuthenticationError,
+    LlmBadRequestError,
+    LlmConnectionError,
+    LlmRateLimitError,
+    LlmServiceUnavailableError,
+    LlmTimeoutError,
+    LlmUnknownError,
+)
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.anthropic.anthropic_client import (
@@ -34,6 +46,10 @@ def make_message(content):
     )
 
 
+def make_response(status_code=500):
+    return httpx.Response(status_code=status_code, request=httpx.Request("POST", "https://api.anthropic.com"))
+
+
 def test_anthropic_prompt_iteration_and_text_body():
     text = TextBlock(text="hello", type="text")
     tool = ToolUseBlock(id="tool-id", input={"x": 1}, name="lookup", type="tool_use")
@@ -52,6 +68,15 @@ def test_anthropic_prompt_iteration_and_text_body():
     assert anthropic_agent.get_text_body(message) == "hello"
     assert anthropic_agent.get_text_body(text) == "hello"
     assert anthropic_agent.get_text_body(tool) == "lookup({'x': 1})"
+
+    normalized_text = anthropic_agent.normalize_message(agent, text)
+    normalized_tool = anthropic_agent.normalize_message(agent, tool)
+    assert normalized_text.kind == "assistant_text"
+    assert normalized_text.text == "hello"
+    assert normalized_tool.kind == "tool_call"
+    assert normalized_tool.tool_name == "lookup"
+    assert normalized_tool.tool_args == {"x": 1}
+    assert normalized_tool.tool_id == "tool-id"
 
 
 def test_anthropic_tool_call_paths():
@@ -105,3 +130,26 @@ def test_anthropic_update_answer_and_token_counts():
         ) == 2
         assert anthropic_agent.count_message_tokens(agent, {"role": "user"}) == 8
         assert anthropic_agent.count_message_tokens(agent, "abcd") == 4
+
+
+def test_anthropic_client_normalizes_provider_errors():
+    client = AnthropicClientConfig.model_construct()
+    model_info = SimpleNamespace(model="claude", temperature=0.1)
+
+    for error, error_type in [
+        (anthropic.RateLimitError("limited", response=make_response(429), body=None), LlmRateLimitError),
+        (anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com")), LlmTimeoutError),
+        (anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com")), LlmConnectionError),
+        (anthropic.InternalServerError("server", response=make_response(500), body=None), LlmServiceUnavailableError),
+        (anthropic.BadRequestError("bad", response=make_response(400), body=None), LlmBadRequestError),
+        (anthropic.AuthenticationError("auth", response=make_response(401), body=None), LlmAuthenticationError),
+        (RuntimeError("unknown"), LlmUnknownError),
+    ]:
+        client._client = SimpleNamespace(
+            messages=SimpleNamespace(create=Mock(side_effect=error))
+        )
+        with pytest.raises(error_type):
+            client.call(model_info, [], "text", [])
+
+    with pytest.raises(NotImplementedError):
+        client.call(model_info, [], "json", [])

@@ -10,7 +10,7 @@ def test_answer_formatting_guidance_by_output_type():
     question = SimpleNamespace(solution="<1, 2>")
 
     sldp = prompt_utils.get_answer_formatting_guidance_helper(
-        SimpleNamespace(output_type="SLDP", sldp_answer_type_hint=True),
+        SimpleNamespace(output_type="SLDP", answer_type_hint=True),
         question,
     )
     assert "SLDP Equality Language" in sldp
@@ -163,6 +163,28 @@ def test_load_dsg_api_prompt_filters_and_formats_api_yaml(tmp_path):
     assert "hidden" not in rendered
     assert "class Status" in rendered
     assert "BAD = ...  # Failure" in rendered
+
+
+def test_load_dsg_uses_cache(monkeypatch):
+    codegen_utils.dsg_cache.clear()
+    loads = []
+
+    def load(path):
+        graph = object()
+        loads.append((path, graph))
+        return graph
+
+    monkeypatch.setattr(codegen_utils.spark_dsg.DynamicSceneGraph, "load", load)
+
+    first = codegen_utils.load_dsg("scene.dsg")
+    second = codegen_utils.load_dsg("scene.dsg")
+    third = codegen_utils.load_dsg("other.dsg")
+
+    assert first is second
+    assert third is not first
+    assert [path for path, graph in loads] == ["scene.dsg", "other.dsg"]
+
+    codegen_utils.dsg_cache.clear()
 
 
 def test_codegen_execute_generated_code_paths(monkeypatch):

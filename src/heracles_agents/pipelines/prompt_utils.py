@@ -5,6 +5,15 @@ from heracles_agents.prompt import (
 from sldp.sldp_lang import get_sldp_type
 
 
+def include_answer_type_hint(prompt_settings):
+    return getattr(
+        prompt_settings,
+        "include_answer_type_hint",
+        getattr(prompt_settings, "answer_type_hint", False)
+        or getattr(prompt_settings, "sldp_answer_type_hint", False),
+    )
+
+
 def get_pddl_format_description():
     return ""
 
@@ -18,7 +27,7 @@ def get_answer_formatting_guidance_helper(prompt_settings, question):
         case "SLDP":
             format_instruction = get_sldp_format_description()
             format_instruction += get_sldp_answer_tag_text()
-            if prompt_settings.sldp_answer_type_hint:
+            if include_answer_type_hint(prompt_settings):
                 sldp_type = get_sldp_type(question.solution)
                 sldp_type_lower = sldp_type.lower()
                 if sldp_type_lower == "string":
@@ -29,7 +38,7 @@ def get_answer_formatting_guidance_helper(prompt_settings, question):
             return format_instruction
         case "SLDP_TOOL":
             format_instruction = get_sldp_format_description()
-            if prompt_settings.sldp_answer_type_hint:
+            if include_answer_type_hint(prompt_settings):
                 sldp_type = get_sldp_type(question.solution)
                 format_instruction += f"\n Your answer should be an SLDP {sldp_type}"
 

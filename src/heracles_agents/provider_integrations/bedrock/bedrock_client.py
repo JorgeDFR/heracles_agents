@@ -82,7 +82,6 @@ class BedrockClientConfig(BaseSettings):
         # Unknown
         # --------------------------------------------------------------
         except Exception as ex:
-            logger.exception("Unexpected Bedrock provider error")
             raise LlmUnknownError(str(ex)) from ex
 
 

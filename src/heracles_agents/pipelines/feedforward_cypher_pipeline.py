@@ -1,6 +1,7 @@
 import copy
 import logging
 
+from heracles_agents.agent_functions import build_custom_tool_prompt
 from heracles_agents.experiment_definition import (
     PipelineDescription,
     PipelinePhase,
@@ -29,8 +30,8 @@ def generate_prompt(
 ):
     prompt = copy.deepcopy(agent_config.agent_info.prompt_settings.base_prompt)
     if agent_config.agent_info.tool_interface == "custom":
-        prompt.tool_description = "\n".join(
-            [t.to_custom() for t in agent_config.agent_info.tools.values()]
+        prompt.tool_description = build_custom_tool_prompt(
+            agent_config.agent_info.tools.values()
         )
 
     try:
@@ -54,6 +55,9 @@ def feedforward_cypher(exp):
     analyzed_questions = []
 
     for question in exp.questions:
+        answer = None
+        sequences = []
+        completed = False
         try:
             logger.info(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["generate-cypher"])
@@ -69,6 +73,7 @@ def feedforward_cypher(exp):
                 description="cypher-producing-agent",
                 responses=cxt.get_agent_responses(),
             )
+            sequences.append(cypher_generation_sequence)
 
             success, query_result = query_db(exp.dsg_interface, answer)
 
@@ -93,8 +98,7 @@ def feedforward_cypher(exp):
             refinement_sequence = AgentSequence(
                 description="refinement-agent", responses=cxt2.get_agent_responses()
             )
-
-            sequences = [cypher_generation_sequence, refinement_sequence]
+            sequences.append(refinement_sequence)
 
             n_input_tokens = cxt.initial_input_tokens + cxt2.initial_input_tokens
             n_output_tokens = cxt.total_output_tokens + cxt2.total_output_tokens
@@ -107,6 +111,7 @@ def feedforward_cypher(exp):
                 output_tokens=n_output_tokens,
                 n_tool_calls=n_tool_calls,
             )
+            completed = True
 
         except Exception as ex:
             print(ex)
@@ -121,7 +126,11 @@ def feedforward_cypher(exp):
             )
 
         aq = AnalyzedQuestion(
-            question=question, answer=answer, sequences=sequences, analysis=analysis
+            question=question,
+            answer=answer,
+            sequences=sequences,
+            analysis=analysis,
+            completed=completed,
         )
         analyzed_questions.append(aq)
 
