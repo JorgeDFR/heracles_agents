@@ -46,7 +46,7 @@ def make_agent(tool_interface="none", template="Question: {question}"):
                     novel_instruction_template=template,
                 ),
                 output_type="SLDP",
-                sldp_answer_type_hint=False,
+                answer_type_hint=False,
             ),
         )
     )

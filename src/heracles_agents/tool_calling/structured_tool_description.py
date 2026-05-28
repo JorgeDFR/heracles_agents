@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 
 
 class StructuredToolDescription(BaseModel):
@@ -7,3 +7,4 @@ class StructuredToolDescription(BaseModel):
     name: str
     description: str
     grammar: str
+    _bound_args: PrivateAttr() = None

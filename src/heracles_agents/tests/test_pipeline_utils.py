@@ -18,32 +18,35 @@ def test_answer_formatting_guidance_by_output_type():
     assert "Your answer should be an SLDP set" in sldp
 
     sldp_tool = prompt_utils.get_answer_formatting_guidance_helper(
-        SimpleNamespace(output_type="SLDP_TOOL", sldp_answer_type_hint=True),
+        SimpleNamespace(output_type="SLDP_TOOL", answer_type_hint=True),
         question,
     )
     assert "Call the tool sldp_answer_tool" in sldp_tool
 
     pddl = prompt_utils.get_answer_formatting_guidance_helper(
-        SimpleNamespace(output_type="PDDL", sldp_answer_type_hint=False),
+        SimpleNamespace(output_type="PDDL", answer_type_hint=False),
         question,
     )
-    assert "Return the PDDL goal" in pddl
+    assert "PDDL Goal Language" in pddl
+    assert "<answer>" in pddl
+
+    pddl_tool = prompt_utils.get_answer_formatting_guidance_helper(
+        SimpleNamespace(output_type="PDDL_TOOL", answer_type_hint=False),
+        question,
+    )
+    assert "PDDL Goal Language" in pddl_tool
+    assert "Call the tool pddl_answer_tool" in pddl_tool
 
     assert (
         prompt_utils.get_answer_formatting_guidance_helper(
-            SimpleNamespace(output_type=None, sldp_answer_type_hint=False),
+            SimpleNamespace(output_type=None, answer_type_hint=False),
             question,
         )
         is None
     )
-    with pytest.raises(NotImplementedError):
-        prompt_utils.get_answer_formatting_guidance_helper(
-            SimpleNamespace(output_type="PDDL_TOOL", sldp_answer_type_hint=False),
-            question,
-        )
     with pytest.raises(ValueError, match="Unknown output type"):
         prompt_utils.get_answer_formatting_guidance_helper(
-            SimpleNamespace(output_type="BAD", sldp_answer_type_hint=False),
+            SimpleNamespace(output_type="BAD", answer_type_hint=False),
             question,
         )
 
@@ -53,12 +56,12 @@ def test_get_answer_formatting_guidance_reads_nested_agent_config():
         agent_info=SimpleNamespace(
             prompt_settings=SimpleNamespace(
                 output_type="PDDL",
-                sldp_answer_type_hint=False,
+                answer_type_hint=False,
             )
         )
     )
 
-    assert "Return the PDDL goal" in prompt_utils.get_answer_formatting_guidance(
+    assert "PDDL Goal Language" in prompt_utils.get_answer_formatting_guidance(
         agent_config, SimpleNamespace(solution="(and)")
     )
 

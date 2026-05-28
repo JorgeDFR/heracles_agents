@@ -85,9 +85,13 @@ def is_function_call(agent, message):
 @dispatch
 def is_answer_tool_call(agent, message):
     prompt_settings = getattr(getattr(agent, "agent_info", None), "prompt_settings", None)
+    answer_tools = {
+        "SLDP_TOOL": "sldp_answer_tool",
+        "PDDL_TOOL": "pddl_answer_tool",
+    }
     return (
-        getattr(prompt_settings, "output_type", None) == "SLDP_TOOL"
-        and getattr(message, "name", None) == "sldp_answer_tool"
+        answer_tools.get(getattr(prompt_settings, "output_type", None))
+        == getattr(message, "name", None)
         and hasattr(message, "input")
     )
 

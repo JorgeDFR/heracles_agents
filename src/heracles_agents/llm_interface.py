@@ -128,15 +128,18 @@ def generate_tools_for_agent(agent_info):
 
 
 def process_answer(agent: LlmAgent, message):
-    match agent.agent_info.prompt_settings.output_type:
+    output_type = agent.agent_info.prompt_settings.output_type
+    match output_type:
         case "SLDP_TOOL" | "PDDL_TOOL":
-            if is_answer_tool_call(agent, message):
-                return get_answer_tool_payload(agent, message)
-
-        # case "SLDP" | "PDDL":
+            if not is_answer_tool_call(agent, message):
+                raise ValueError(
+                    f"Expected {output_type} answer tool call, got {type(message)}: {message}"
+                )
+            return get_answer_tool_payload(agent, message)
+        case "SLDP" | "PDDL" | None:
+            return extract_answer(agent, extract_answer_tag, message)
         case _:
-            answer = extract_answer(agent, extract_answer_tag, message)
-            return answer
+            raise ValueError(f"Unknown output type: {output_type}")
 
 
 def needs_tool_processing(agent: LlmAgent, message):

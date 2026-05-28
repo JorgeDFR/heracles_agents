@@ -39,7 +39,6 @@ def load_experiment_file(file_path: Path) -> dict:
 
 def get_test_experiment_file() -> Path:
     """Get a specific experiment file for testing."""
-    # Using canary_experiment.yaml as it has a simpler structure
     return (
         get_project_root()
         / "examples"
@@ -75,19 +74,10 @@ class TestExperimentParsing:
         # Create and register test pipelines
         self.mock_function = Mock()
 
-        # Register canary pipeline
+        # Register the pipeline referenced by examples/experiments/tests/anthropic_test.yaml.
         test_pipeline = PipelineDescription(
             name="canary",
             description="Test canary pipeline",
-            phases=[PipelinePhase(name="main", description="Main phase")],
-            function=self.mock_function,
-        )
-        register_pipeline(test_pipeline)
-
-        # Register agentic pipeline
-        test_pipeline = PipelineDescription(
-            name="agentic",
-            description="Test agentic pipeline",
             phases=[PipelinePhase(name="main", description="Main phase")],
             function=self.mock_function,
         )
@@ -99,7 +89,6 @@ class TestExperimentParsing:
 
     def test_simple_parsing(self):
         """Test parsing a simple experiment YAML file."""
-        # Load and parse anthropic test file which has the correct structure
         anthropic_file = get_test_experiment_file()
         experiment_data = load_experiment_file(anthropic_file)
 
@@ -117,67 +106,3 @@ class TestExperimentParsing:
             ),
         ):
             ExperimentDescription(**experiment_data)
-
-        """Test parsing an experiment from an actual YAML file."""
-        # Load and parse canary experiment file
-        canary_file = get_test_experiment_file()
-        experiment_data = load_experiment_file(canary_file)
-
-        with (
-            patch.dict(
-                os.environ,
-                {
-                    "HERACLES_AGENTS_PATH": str(get_project_root()),
-                    "HERACLES_ANTHROPIC_API_KEY": "test-key",
-                    "HERACLES_OPENAI_API_KEY": "test-key",
-                },
-            ),
-            patch(
-                "heracles_agents.experiment_definition.ExperimentConfiguration.load_questions",
-                return_value=[],
-            ),
-        ):
-            ExperimentDescription(**experiment_data)
-
-    def test_parse_experiment_with_env_vars(self):
-        """Test parsing experiment YAML with environment variable expansion."""
-        # Load and parse anthropic test file which has env vars
-        anthropic_file = get_test_experiment_file()
-        experiment_data = load_experiment_file(anthropic_file)
-
-        # Set environment variables and test parsing
-        with (
-            patch.dict(
-                os.environ,
-                {
-                    "HERACLES_AGENTS_PATH": str(get_project_root()),
-                    "HERACLES_ANTHROPIC_API_KEY": "test-key",
-                },
-            ),
-            patch(
-                "heracles_agents.experiment_definition.ExperimentConfiguration.load_questions",
-                return_value=[{"name": "test_question"}],
-            ),
-        ):
-            ExperimentDescription(**experiment_data)
-
-    def test_parse_experiment_with_real_anthropic_structure(self):
-        """Test parsing experiment that matches the anthropic_test.yaml structure."""
-        # Load anthropic test experiment file
-        anthropic_file = get_test_experiment_file()
-        anthropic_data = load_experiment_file(anthropic_file)
-
-        with (
-            patch.dict(
-                os.environ,
-                {
-                    "HERACLES_AGENTS_PATH": str(get_project_root()),
-                    "HERACLES_ANTHROPIC_API_KEY": "test-key",
-                },
-            ),
-            patch(
-                "heracles_agents.experiment_definition.ExperimentConfiguration.load_questions",
-                return_value=[],
-            ),
-        ):
-            ExperimentDescription(**anthropic_data)

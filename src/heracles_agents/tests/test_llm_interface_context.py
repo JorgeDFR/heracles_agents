@@ -49,6 +49,30 @@ def test_process_answer_uses_custom_tool_input_for_structured_output(monkeypatch
 
     wrong_tool = message.model_copy(update={"name": "other_tool"})
     assert not is_answer_tool_call(agent, wrong_tool)
+    with pytest.raises(ValueError, match="Expected SLDP_TOOL answer tool call"):
+        process_answer(agent, wrong_tool)
+
+    pddl_message = message.model_copy(
+        update={
+            "input": "(visited-place P100)",
+            "name": "pddl_answer_tool",
+        }
+    )
+    pddl_agent = make_agent(
+        agent_info=SimpleNamespace(prompt_settings=SimpleNamespace(output_type="PDDL_TOOL"))
+    )
+    assert process_answer(pddl_agent, pddl_message) == "(visited-place P100)"
+    assert is_answer_tool_call(pddl_agent, pddl_message)
+
+    with pytest.raises(ValueError, match="Unknown output type"):
+        process_answer(
+            make_agent(
+                agent_info=SimpleNamespace(
+                    prompt_settings=SimpleNamespace(output_type="UNKNOWN")
+                )
+            ),
+            message,
+        )
 
 
 def test_process_answer_falls_back_to_extractor(monkeypatch):

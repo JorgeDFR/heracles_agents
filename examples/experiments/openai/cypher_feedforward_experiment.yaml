@@ -43,7 +43,7 @@ configurations:
                     prompt_settings:
                         base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/cypher/qa_feedforward_refinement_cypher_prompt.yaml
                         output_type: SLDP
-                        sldp_answer_type_hint: true
+                        answer_type_hint: true
                     tools: []
                     tool_interface: none
                     max_iterations: 1

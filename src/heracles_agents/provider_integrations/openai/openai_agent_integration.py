@@ -62,9 +62,12 @@ def is_function_call(agent: LlmAgent[OpenaiClientConfig], message):
 def is_answer_tool_call(
     agent: LlmAgent[OpenaiClientConfig], message: ResponseCustomToolCall
 ):
+    answer_tools = {
+        "SLDP_TOOL": "sldp_answer_tool",
+        "PDDL_TOOL": "pddl_answer_tool",
+    }
     return (
-        agent.agent_info.prompt_settings.output_type == "SLDP_TOOL"
-        and message.name == "sldp_answer_tool"
+        answer_tools.get(agent.agent_info.prompt_settings.output_type) == message.name
     )
 
 

@@ -1,6 +1,6 @@
 # Heracles Agents
 
->**Note:** This is a fork of the upstream Heracles Agents framework. This fork preserves the original lightweight agent architecture while adding experimental tooling, providers, and experiments for robotics and spatial reasoning research.
+>**Note:** This is a fork of the upstream Heracles Agents framework. This fork preserves the original agent architecture while adding experimental tooling, providers, and experiments for robotics and spatial reasoning research.
 
 `heracles_agents` is a minimal agentic LLM framework. It has been developed
 with a focus on the following priorities:
@@ -121,10 +121,46 @@ comparison. Example configurations live under
 for OpenAI, OpenRouter, Ollama, Anthropic, and Bedrock.
 
 To run an experiment, install the package, configure the relevant provider API
-key or local service, then pass an experiment YAML file to the runner:
+key or local service, then pass one or more experiment YAML files to the runner:
 
 ```bash
 python examples/experiment_runner.py examples/experiments/openai/cypher_experiment.yaml
+```
+
+The runner writes results to `output/<experiment-folder>/<experiment-name>_results.yaml`
+by default.
+
+Useful options:
+
+```bash
+# Run multiple experiment files
+python examples/experiment_runner.py \
+  examples/experiments/openai/canary_experiment.yaml \
+  examples/experiments/openrouter/canary_experiment.yaml
+
+# Run only one named configuration from an experiment file
+python examples/experiment_runner.py \
+  examples/experiments/tests/openai_test.yaml \
+  --configuration agentic-canary-qa
+
+# Choose an output directory and suppress live result tables
+python examples/experiment_runner.py \
+  examples/experiments/openai/cypher_experiment.yaml \
+  --output-dir output/manual_runs \
+  --no-display
+```
+
+To inspect a saved result YAML later, use:
+
+```bash
+python examples/display_yaml_results.py output/openai/cypher_experiment_results.yaml
+```
+
+Useful display options:
+
+```bash
+python examples/display_yaml_results.py output/openai/cypher_experiment_results.yaml --summary-only
+python examples/display_yaml_results.py output/openai/cypher_experiment_results.yaml --show-sequences
 ```
 
 The prompt templates used by those configurations are under

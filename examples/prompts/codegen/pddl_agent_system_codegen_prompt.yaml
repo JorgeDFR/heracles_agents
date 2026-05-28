@@ -17,5 +17,3 @@ in_context_examples: ${HERACLES_AGENTS_PATH}/examples/prompts/common/pddl_in_con
 
 novel_instruction_preamble: "Now, generate a PDDL goal for this command: "
 novel_instruction_template: '{question}'
-
-answer_formatting_guidance: 'Use a series of steps to formulate your final answer in a chain of thought style. Your final PDDL goal should be written between two answer tags, <answer> and </answer>.'

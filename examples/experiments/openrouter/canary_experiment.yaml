@@ -20,7 +20,7 @@ configurations:
                     prompt_settings:
                         base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/canary_prompt.yaml
                         output_type: SLDP
-                        sldp_answer_type_hint: true
+                        answer_type_hint: true
                     tools:
                         - name: calculator
                         - name: ask_favog

@@ -3,7 +3,7 @@ import os
 from typing import List, Optional
 
 import yaml
-from pydantic import BaseModel, PrivateAttr, field_validator
+from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +69,15 @@ class Prompt(BaseModel):
 
 
 class PromptSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     base_prompt: Prompt
     output_type: Optional[str] = None
     answer_type_hint: bool = False
-    sldp_answer_type_hint: bool = False
 
     @property
     def include_answer_type_hint(self):
-        return self.answer_type_hint or self.sldp_answer_type_hint
+        return self.answer_type_hint
 
     @field_validator("base_prompt", mode="before")
     @classmethod
@@ -97,51 +98,3 @@ class PromptSettings(BaseModel):
                 raise ValueError(
                     f"PromptSettings cannot initialize base_prompt from type {type(prompt_path)}"
                 )
-
-
-def get_sldp_format_description():
-    return """
-Please format your response according to the SLDP Equality Language:
-
-## SLDP Equality Language
-
-To evaluate if an answer is correct, we need to define a sense of equality.
-This is rather tricky, because there are different senses in which things can be equal.
-
-We need to handle Lists, Sets, Dictionaries, and Points.
-Lists are equal if each element is equal.
-Sets A and B are equal if A ⊆ B and B ⊆ A.
-Dictionaries are equal if the sets of their keys are equal and the value for each key matches between dictionaries.
-Two points are equal if they are within some tolerance.
-Of course primitive numbers and strings can also be compared for equality.
-We support arbitrary compositions of these containers.
-
-We expect nodes in the graph to be represented without any parentheses.
-For example O(1) should be represented as O1.
-We also expect no additional information than what is explicitly asked for in the question.
-E.g., if the question asks for a list of node IDs, the answer should be a list of node IDs and not a list of nodes with their properties or if the question asks for locations a list of points should be provided and not a list of nodes with their locations.
-
-### Syntax
-
-A primitive string is a sequence of alphanumeric characters (with no quotation).
-
-A primitive number is a floating point representation of a number.
-
-A `list` is written as `[element1, element2, ... elementN]`
-
-A `set` is written as `<element1, element2, ... elementN>`
-
-A `dict` is written as `{k1: v1, k2: v2}`
-
-A `point` is written as `POINT(x y z)` (note the lack of comma)
-"""
-
-
-def get_sldp_answer_tag_text():
-    return """
-### Denoting Final Answer:
-
-Format your final answer (*not* any intermediate tool calls) as an SLDP expression wrapped between the <answer> and </answer> tags (XML-style format).
-Example: <answer> <1,2,3> </answer>
-Only a single pair of answer tags should appear in your solution.
-"""

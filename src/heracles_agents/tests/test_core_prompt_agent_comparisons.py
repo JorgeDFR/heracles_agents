@@ -11,6 +11,10 @@ from heracles_agents.prompt import (
     InContextExample,
     Prompt,
     PromptSettings,
+)
+from heracles_agents.pipelines.prompt_utils import (
+    get_pddl_answer_tag_text,
+    get_pddl_format_description,
     get_sldp_answer_tag_text,
     get_sldp_format_description,
 )
@@ -242,6 +246,13 @@ def test_prompt_settings_loads_path_dict_and_prompt(tmp_path, monkeypatch):
     )
     assert with_answer_type_hint.include_answer_type_hint
 
+    with pytest.raises(ValueError, match="sldp_answer_type_hint"):
+        PromptSettings(
+            base_prompt="$PROMPT_FILE",
+            output_type="SLDP",
+            sldp_answer_type_hint=True,
+        )
+
     from_dict = PromptSettings(base_prompt={"system": "dict", "novel_instruction": "ask"})
     assert from_dict.base_prompt.system == "dict"
 
@@ -255,6 +266,8 @@ def test_prompt_settings_loads_path_dict_and_prompt(tmp_path, monkeypatch):
         PromptSettings(base_prompt=42)
 
 
-def test_sldp_guidance_helpers_return_expected_sections():
+def test_answer_guidance_helpers_return_expected_sections():
     assert "SLDP Equality Language" in get_sldp_format_description()
     assert "<answer>" in get_sldp_answer_tag_text()
+    assert "PDDL Goal Language" in get_pddl_format_description()
+    assert "<answer>" in get_pddl_answer_tag_text()

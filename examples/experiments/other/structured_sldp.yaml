@@ -39,7 +39,7 @@ configurations:
                     prompt_settings:
                         base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/cypher/dsg_feedforward_refinement_prompt.yaml
                         output_type: SLDP_TOOL
-                        sldp_answer_type_hint: true
+                        answer_type_hint: true
                     tools:
                         - name: sldp_answer_tool
                     tool_interface: openai

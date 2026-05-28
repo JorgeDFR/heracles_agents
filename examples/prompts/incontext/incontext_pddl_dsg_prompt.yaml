@@ -7,7 +7,7 @@ system: |
 
   Given a 3D Scene Graph and an instruction, you must generate PDDL goal predicates associated with the instruction.
   Explain your reasoning before giving a final answer.
-  You MUST format your final answer using the defined response format {response_format}.
+  When producing a final answer, follow the PDDL answer formatting guidance exactly.
 
 scene_graph_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/scene_graph_description.yaml
 labelspace_description: ${HERACLES_AGENTS_PATH}/examples/prompts/common/building_45_labelspace.yaml
@@ -60,5 +60,3 @@ in_context_examples:
 
 novel_instruction_preamble: "Here is a new 3D Scene graph and a new instruction for you to translate."
 novel_instruction_template: '{dsg_description}\n Instruction to translate: {question}'
-
-#answer_formatting_guidance: 'Use a series of steps to formulate your final answer in a chain of thought style. You response MUST be dictionary of the form: {\"robot id\": \"PDDL goal\", \"robot id\": \"PDDL goal\"}. The arguments to the predicates MUST NOT include parentheses. For example, \"(visited-place R(1))\" is NOT correct and should instead be \"(visited-place R1)\". Put your answer between the XML tags <answer> answer goes here </answer>.'

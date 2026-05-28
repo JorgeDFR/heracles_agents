@@ -182,6 +182,19 @@ def test_openai_answer_tool_normalizes_as_answer_tool():
     assert normalized.tool_name == "sldp_answer_tool"
     assert normalized.tool_id == "call"
 
+    pddl_agent = make_openai_agent(
+        prompt_settings=SimpleNamespace(output_type="PDDL_TOOL"),
+    )
+    pddl_call = custom_call.model_copy(
+        update={
+            "input": "(visited-place P100)",
+            "name": "pddl_answer_tool",
+        }
+    )
+    pddl_normalized = openai_agent.normalize_message(pddl_agent, pddl_call)
+    assert pddl_normalized.kind == "answer_tool"
+    assert pddl_normalized.tool_name == "pddl_answer_tool"
+
 
 def test_openai_update_and_answer_extraction():
     message = make_message("<answer>42</answer>")

@@ -49,6 +49,7 @@ from heracles_agents.tools.canary_favog_tool import the_mighty_favog
 from heracles_agents.tools.codegen_tool import execute_generated_code
 from heracles_agents.tools.cypher_query_tool import bind_query_db, query_db
 from heracles_agents.tools.pddl_calling_tool import send_pddl
+from heracles_agents.tools.pddl_answer_tool import pddl_tool
 
 
 def test_structured_tool_openai_format_and_unsupported_providers():
@@ -78,6 +79,11 @@ def test_structured_tool_openai_format_and_unsupported_providers():
     ]:
         with pytest.raises(NotImplementedError):
             renderer(tool)
+
+    rendered_pddl_tool = render_openai_tool(pddl_tool)
+    assert rendered_pddl_tool["name"] == "pddl_answer_tool"
+    assert rendered_pddl_tool["format"]["syntax"] == "lark"
+    assert "fact:" in rendered_pddl_tool["format"]["definition"]
 
 
 def test_tool_registry_registers_duplicates_and_validates_arg_types(capsys):

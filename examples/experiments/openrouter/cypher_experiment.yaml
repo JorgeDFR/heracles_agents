@@ -20,7 +20,7 @@ configurations:
                     prompt_settings:
                         base_prompt: $HERACLES_AGENTS_PATH/examples/prompts/cypher/qa_agentic_cypher_prompt.yaml
                         output_type: SLDP
-                        sldp_answer_type_hint: true
+                        answer_type_hint: true
                     tools:
                         - name: run_cypher_query
                           bound_args:
