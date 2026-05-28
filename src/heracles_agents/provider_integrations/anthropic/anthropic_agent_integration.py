@@ -1,7 +1,6 @@
 # ruff: noqa: F811
 
 import logging
-import tiktoken
 
 from plum import dispatch
 
@@ -21,13 +20,19 @@ from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.anthropic.anthropic_client import (
     AnthropicClientConfig,
 )
+from heracles_agents.provider_integrations.anthropic.prompt_rendering import (
+    render_anthropic_prompt,
+)
+import heracles_agents.provider_integrations.anthropic.tool_rendering  # noqa: F401
+import heracles_agents.provider_integrations.anthropic.token_counting  # noqa: F401
+from heracles_agents.token_utils import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
 
 @dispatch
 def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[AnthropicClientConfig]):
-    return prompt.to_anthropic_json()
+    return render_anthropic_prompt(prompt)
 
 
 @dispatch
@@ -152,18 +157,17 @@ def normalize_message(agent: LlmAgent[AnthropicClientConfig], message: TextBlock
 
 @dispatch
 def count_message_tokens(agent: LlmAgent[AnthropicClientConfig], message: dict):
-    enc = tiktoken.get_encoding("cl100k_base")
     if "content" in message:
         # Response from model?
         if isinstance(message["content"], list):
             return sum(count_message_tokens(agent, m) for m in message["content"])
         else:
-            return len(enc.encode(message["content"]))
+            return count_text_tokens(agent, message["content"])
     else:
         # Tool result?
         total = 0
         for k, v in message.items():
-            total += len(enc.encode(k)) + len(enc.encode(v))
+            total += count_text_tokens(agent, k) + count_text_tokens(agent, v)
         return total
 
 
@@ -185,11 +189,9 @@ def count_message_tokens(agent: LlmAgent[AnthropicClientConfig], message: ToolUs
 
 @dispatch
 def count_message_tokens(agent: LlmAgent[AnthropicClientConfig], message: str):
-    enc = tiktoken.get_encoding("cl100k_base")
-    return len(enc.encode(message))
+    return count_text_tokens(agent, message)
 
 
 @dispatch
 def get_summary_text(agent: LlmAgent[AnthropicClientConfig], message: TextBlock):
-    enc = tiktoken.get_encoding("cl100k_base")
-    return len(enc.encode(message.text))
+    return count_text_tokens(agent, message.text)

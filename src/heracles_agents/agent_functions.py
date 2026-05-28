@@ -10,7 +10,7 @@ from heracles_agents.custom_tool_call_parser import lark_parse_tool
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.normalized_response import NormalizedMessage
 from heracles_agents.prompt import Prompt
-from heracles_agents.token_utils import get_token_encoder
+from heracles_agents.token_utils import count_text_tokens
 from heracles_agents.tool_rendering import render_custom_tool
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,12 @@ def generate_prompt_for_agent(prompt: Prompt, agent: object):
 
 
 def extract_tag(tag, string):
-    matches = re.findall(rf"<{tag}>([\s\S]*?)<\/{tag}>", string, re.MULTILINE)
+    tag = re.escape(tag)
+    matches = re.findall(
+        rf"<{tag}>((?:(?!<{tag}>)[\s\S])*?)<\/{tag}>",
+        string,
+        re.MULTILINE,
+    )
     if len(matches) == 0:
         return None
     if len(matches) > 1:
@@ -198,11 +203,10 @@ def count_message_tokens(agent: LlmAgent, messages: list):
 
 @dispatch
 def count_message_tokens(agent: LlmAgent, message):
-    enc = get_token_encoder(agent.model_info.model)
     text = get_text_body(message)
-    # Replace endoftext tokens if they exist from Ollama
+    # Some providers include end-of-text markers in returned content.
     text = text.replace("<|endoftext|>", "")
-    return len(enc.encode(text))
+    return count_text_tokens(agent, text)
 
 
 @dispatch
@@ -212,12 +216,11 @@ def count_message_tokens(agent: LlmAgent, message: type(None)):
 
 @dispatch
 def count_tool_description_tokens(agent: LlmAgent, explicit_tools: dict):
-    enc = get_token_encoder(agent.model_info.model)
     logger.debug(
         "Using this string representation for computing tool tokens: ",
         str(explicit_tools),
     )
-    return len(enc.encode(str(explicit_tools)))
+    return count_text_tokens(agent, str(explicit_tools))
 
 
 @dispatch

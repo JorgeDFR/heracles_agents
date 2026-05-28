@@ -2,7 +2,6 @@
 
 import copy
 import logging
-import tiktoken
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,6 +21,12 @@ from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.bedrock.bedrock_client import (
     BedrockClientConfig,
 )
+from heracles_agents.provider_integrations.bedrock.prompt_rendering import (
+    render_bedrock_prompt,
+)
+import heracles_agents.provider_integrations.bedrock.tool_rendering  # noqa: F401
+import heracles_agents.provider_integrations.bedrock.token_counting  # noqa: F401
+from heracles_agents.token_utils import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +48,7 @@ def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[BedrockClientConfi
 
     if agent.agent_info.tool_interface == "custom":
         p.tool_description = build_custom_tool_prompt(agent.agent_info.tools.values())
-    return p.to_bedrock_json()
+    return render_bedrock_prompt(p)
 
 
 @dispatch
@@ -157,14 +162,11 @@ def get_bedrock_block_summary(message: dict):
 
 @dispatch
 def count_message_tokens(agent: LlmAgent[BedrockClientConfig], message: str):
-    enc = tiktoken.get_encoding("cl100k_base")
-    return len(enc.encode(message))
+    return count_text_tokens(agent, message)
 
 
 @dispatch
 def count_message_tokens(agent: LlmAgent[BedrockClientConfig], message: dict):
-    enc = tiktoken.get_encoding("cl100k_base")
-
     if "content" in message:
         # when we sent a message
         num_tokens = 3
@@ -174,18 +176,18 @@ def count_message_tokens(agent: LlmAgent[BedrockClientConfig], message: dict):
                 # num_tokens += len(enc.encode(value))
         return num_tokens
     elif "text" in message:
-        return len(enc.encode(message["text"]))
+        return count_text_tokens(agent, message["text"])
     elif "message" in message:
-        return len(
-            enc.encode(" ".join([c["text"] for c in message["message"]["content"]]))
+        return count_text_tokens(
+            agent, " ".join([c["text"] for c in message["message"]["content"]])
         )
     elif "toolUse" in message:
         return count_message_tokens(agent, message["toolUse"])
     if "toolUseId" in message:
-        total = len(enc.encode(message["name"]))
+        total = count_text_tokens(agent, message["name"])
         for argname, argval in message["input"].items():
-            total += len(enc.encode(argname))
-            total += len(enc.encode(argval))
+            total += count_text_tokens(agent, argname)
+            total += count_text_tokens(agent, argval)
         return total
     else:
         raise NotImplementedError("Not sure how to process message: ", message)

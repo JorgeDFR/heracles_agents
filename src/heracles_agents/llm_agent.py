@@ -5,7 +5,7 @@ from typing import Generic, Optional, TypeVar
 from plum import parametric
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
-from heracles_agents.model_client_interfaces import get_client_union_type
+from heracles_agents.provider_integrations.model_client_interfaces import get_client_union_type
 from heracles_agents.prompt import PromptSettings
 from heracles_agents.pydantic_discriminated_dispatch import (
     discriminated_union_dispatch,
@@ -47,7 +47,7 @@ class AgentInfo(BaseModel):
 
     prompt_settings: PromptSettings
     tools: dict[str, ToolDescription | StructuredToolDescription]
-    tool_interface: str  # Openai vs. custom vs. ???
+    tool_interface: str
     max_iterations: int
 
     @field_validator("tools", mode="before")

@@ -14,6 +14,17 @@ from heracles_agents.prompt import (
     get_sldp_answer_tag_text,
     get_sldp_format_description,
 )
+from heracles_agents.provider_integrations.anthropic.prompt_rendering import (
+    render_anthropic_prompt,
+)
+from heracles_agents.provider_integrations.bedrock.prompt_rendering import (
+    render_bedrock_example,
+    render_bedrock_prompt,
+)
+from heracles_agents.provider_integrations.openai.prompt_rendering import (
+    render_openai_example,
+    render_openai_prompt,
+)
 from heracles_agents.tool_interface import FunctionParameter, ToolDescription
 from heracles_agents.tool_registry import ToolRegistry
 
@@ -128,12 +139,12 @@ def test_agent_info_rejects_unknown_tools():
 def test_in_context_example_provider_formats():
     example = InContextExample(user="u", assistant="a", system="s")
 
-    assert example.to_openai_json() == [
+    assert render_openai_example(example) == [
         {"role": "developer", "content": "s"},
         {"role": "user", "content": "u"},
         {"role": "assistant", "content": "a"},
     ]
-    assert example.to_bedrock_json() == [
+    assert render_bedrock_example(example) == [
         {"role": "user", "content": [{"text": "u"}]},
         {"role": "assistant", "content": [{"text": "a"}]},
     ]
@@ -172,7 +183,7 @@ def test_prompt_loads_yaml_descriptions_and_renders_provider_payloads(tmp_path):
     )
     prompt.set_api_prompt("api")
 
-    openai = prompt.to_openai_json()
+    openai = render_openai_prompt(prompt)
     assert openai[0] == {"role": "developer", "content": "system"}
     assert {"role": "developer", "content": "scene"} in openai
     assert {"role": "developer", "content": "api"} in openai
@@ -184,18 +195,18 @@ def test_prompt_loads_yaml_descriptions_and_renders_provider_payloads(tmp_path):
         {"role": "developer", "content": "format"},
     ]
 
-    anthropic = prompt.to_anthropic_json(novel_instruction="override")
+    anthropic = render_anthropic_prompt(prompt, novel_instruction="override")
     assert anthropic[0] == {"role": "user", "content": "system"}
     assert {"role": "user", "content": "override"} in anthropic
 
-    bedrock = prompt.to_bedrock_json(novel_instruction="override")
+    bedrock = render_bedrock_prompt(prompt, novel_instruction="override")
     assert bedrock[0] == {"role": "user", "content": [{"text": "system"}]}
     assert {"role": "user", "content": [{"text": "override"}]} in bedrock
 
 
 def test_prompt_requires_novel_instruction_and_valid_yaml_keys(tmp_path):
     with pytest.raises(ValueError, match="novel_instruction must be set"):
-        Prompt(system="system").to_openai_json()
+        render_openai_prompt(Prompt(system="system"))
 
     missing_file = tmp_path / "missing.yaml"
     with pytest.raises(ValueError, match="Description YAML path does not exist"):

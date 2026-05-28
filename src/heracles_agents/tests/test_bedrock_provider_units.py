@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 import heracles_agents.provider_integrations.bedrock.bedrock_agent_integration as bedrock_agent
+from heracles_agents.agent_functions import extract_answer_tag
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.bedrock.bedrock_client import BedrockClientConfig
@@ -110,8 +111,14 @@ def test_bedrock_tool_responses_update_and_answer_extraction():
     assert (
         bedrock_agent.extract_answer(
             agent,
-            lambda text: text.split("<answer>")[1].split("</answer>")[0],
-            {"content": [{"text": "prefix <answer>42</answer>"}]},
+            extract_answer_tag,
+            {
+                "content": [
+                    {
+                        "text": "<answer>42</answer>"
+                    }
+                ]
+            },
         )
         == "42"
     )
@@ -120,10 +127,7 @@ def test_bedrock_tool_responses_update_and_answer_extraction():
 
 def test_bedrock_token_counting_shapes():
     agent = make_bedrock_agent()
-    encoder = Mock()
-    encoder.encode.side_effect = lambda value: list(str(value))
-
-    with patch.object(bedrock_agent.tiktoken, "get_encoding", return_value=encoder):
+    with patch.object(bedrock_agent, "count_text_tokens", side_effect=lambda agent, value: len(str(value))):
         assert bedrock_agent.count_message_tokens(agent, "abc") == 3
         assert bedrock_agent.count_message_tokens(agent, {"text": "abc"}) == 3
         assert bedrock_agent.count_message_tokens(

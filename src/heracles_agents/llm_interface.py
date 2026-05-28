@@ -33,7 +33,7 @@ from heracles_agents.normalized_response import (
     NormalizedMessage,
     normalized_summary,
 )
-from heracles_agents.tool_rendering import render_tool_for_interface
+from heracles_agents.tool_rendering import has_tool_renderer, render_tool_for_interface
 
 logger = logging.getLogger(__name__)
 
@@ -115,21 +115,16 @@ class AnalyzedExperiment(BaseModel):
 
 
 def generate_tools_for_agent(agent_info):
-    match agent_info.tool_interface:
-        case "custom":
-            explicit_tools = []
-        case "none":
-            explicit_tools = []
-        case "openai" | "anthropic" | "ollama" | "bedrock" | "openrouter":
-            explicit_tools = [
-                render_tool_for_interface(tool, agent_info.tool_interface)
-                for tool in agent_info.tools.values()
-            ]
-        case _:
-            raise NotImplementedError(
-                f"Unknown tool interface: {agent_info.tool_interface}"
-            )
-    return explicit_tools
+    if agent_info.tool_interface in {"custom", "none"}:
+        return []
+    if not has_tool_renderer(agent_info.tool_interface):
+        raise NotImplementedError(
+            f"Unknown tool interface: {agent_info.tool_interface}"
+        )
+    return [
+        render_tool_for_interface(tool, agent_info.tool_interface)
+        for tool in agent_info.tools.values()
+    ]
 
 
 def process_answer(agent: LlmAgent, message):
@@ -200,7 +195,7 @@ def get_summary_text(resp: dict):
                 r["text"] for r in resp["toolResult"]["content"]
             )
         except Exception as ex:
-            logger.error("bedrock logging format error")
+            logger.error("tool result logging format error")
             logger.error(str(ex))
             return "Tool result: " + str(resp["toolResult"])
     else:

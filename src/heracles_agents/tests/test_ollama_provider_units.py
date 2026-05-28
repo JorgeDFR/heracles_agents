@@ -5,6 +5,7 @@ import pytest
 from ollama import ChatResponse, Message, RequestError, ResponseError
 
 import heracles_agents.provider_integrations.ollama.ollama_agent_integration as ollama_agent
+from heracles_agents.agent_functions import extract_answer_tag
 from heracles_agents.exceptions import (
     LlmAuthenticationError,
     LlmBadRequestError,
@@ -97,7 +98,7 @@ def test_ollama_function_and_custom_tool_calls():
 
 
 def test_ollama_update_answer_and_tokens():
-    message = Message(role="assistant", content="prefix <answer>42</answer>")
+    message = Message(role="assistant", content="<answer>42</answer>")
     response = make_response(message)
     agent = make_ollama_agent()
 
@@ -105,7 +106,7 @@ def test_ollama_update_answer_and_tokens():
     assert (
         ollama_agent.extract_answer(
             agent,
-            lambda text: text.split("<answer>")[1].split("</answer>")[0],
+            extract_answer_tag,
             response,
         )
         == "42"
@@ -113,15 +114,13 @@ def test_ollama_update_answer_and_tokens():
     assert (
         ollama_agent.extract_answer(
             agent,
-            lambda text: text.split("<answer>")[1].split("</answer>")[0],
+            extract_answer_tag,
             message,
         )
         == "42"
     )
 
-    encoder = Mock()
-    encoder.encode.side_effect = lambda value: list(str(value))
-    with patch.object(ollama_agent.tiktoken, "get_encoding", return_value=encoder):
+    with patch.object(ollama_agent, "count_text_tokens", side_effect=lambda agent, value: len(str(value))):
         assert ollama_agent.count_message_tokens(agent, {"content": "abcd"}) == 4
 
 

@@ -3,7 +3,6 @@
 import copy
 import json
 import logging
-import tiktoken
 
 from collections.abc import Callable
 from plum import dispatch
@@ -26,6 +25,12 @@ from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openai.openai_client import (
     OpenaiClientConfig,
 )
+from heracles_agents.provider_integrations.openai.prompt_rendering import (
+    render_openai_prompt,
+)
+import heracles_agents.provider_integrations.openai.tool_rendering  # noqa: F401
+import heracles_agents.provider_integrations.openai.token_counting  # noqa: F401
+from heracles_agents.token_utils import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +40,7 @@ def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[OpenaiClientConfig
     p = copy.deepcopy(prompt)
     if agent.agent_info.tool_interface == "custom":
         p.tool_description = build_custom_tool_prompt(agent.agent_info.tools.values())
-    return p.to_openai_json()
+    return render_openai_prompt(p)
 
 
 @dispatch
@@ -219,14 +224,10 @@ def normalize_message(
 
 @dispatch
 def count_message_tokens(agent: LlmAgent[OpenaiClientConfig], message: dict):
-    model_name = agent.model_info.model
-    if "gpt-5" in model_name:
-        model_name = "gpt-5-latest"   # tiktoken is broken
-    enc = tiktoken.encoding_for_model(model_name)
     # https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken
     num_tokens = 3
     for key, value in message.items():
-        num_tokens += len(enc.encode(value))
+        num_tokens += count_text_tokens(agent, value)
     if key == "name":
         num_tokens += 1
     return num_tokens

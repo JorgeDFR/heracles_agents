@@ -9,6 +9,7 @@ from anthropic.types.text_block import TextBlock
 from anthropic.types.tool_use_block import ToolUseBlock
 
 import heracles_agents.provider_integrations.anthropic.anthropic_agent_integration as anthropic_agent
+from heracles_agents.agent_functions import extract_answer_tag
 from heracles_agents.exceptions import (
     LlmAuthenticationError,
     LlmBadRequestError,
@@ -107,7 +108,7 @@ def test_anthropic_tool_call_paths():
 
 
 def test_anthropic_update_answer_and_token_counts():
-    text = TextBlock(text="prefix <answer>42</answer>", type="text")
+    text = TextBlock(text="<answer>42</answer>", type="text")
     message = make_message([text])
     agent = make_anthropic_agent()
 
@@ -117,13 +118,11 @@ def test_anthropic_update_answer_and_token_counts():
     assert update[0]["content"] == [text]
     assert anthropic_agent.extract_answer(
         agent,
-        lambda body: body.split("<answer>")[1].split("</answer>")[0],
+        extract_answer_tag,
         {"content": [text]},
     ) == "42"
 
-    encoder = Mock()
-    encoder.encode.side_effect = lambda value: list(str(value))
-    with patch.object(anthropic_agent.tiktoken, "get_encoding", return_value=encoder):
+    with patch.object(anthropic_agent, "count_text_tokens", side_effect=lambda agent, value: len(str(value))):
         assert anthropic_agent.count_message_tokens(agent, {"content": "abc"}) == 3
         assert anthropic_agent.count_message_tokens(
             agent, {"content": [{"content": "ab"}]}

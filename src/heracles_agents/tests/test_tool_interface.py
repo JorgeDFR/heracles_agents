@@ -9,11 +9,11 @@ from heracles_agents.tool_interface import (
     FunctionParameter,
     ToolDescription,
 )
+from heracles_agents.provider_integrations.anthropic.tool_rendering import render_anthropic_tool
+from heracles_agents.provider_integrations.ollama.tool_rendering import render_ollama_tool
 from heracles_agents.tool_rendering import (
-    render_anthropic_tool,
     render_custom_parameter,
     render_custom_tool,
-    render_ollama_tool,
     render_parameter,
     render_tool_for_interface,
 )

@@ -9,6 +9,9 @@ from heracles_agents.pipelines import (
     feedforward_cypher_pipeline,
 )
 from heracles_agents.prompt import Prompt
+from heracles_agents.provider_integrations.openai.prompt_rendering import (
+    render_openai_prompt,
+)
 from heracles_agents.tool_interface import FunctionParameter, ToolDescription
 
 
@@ -88,7 +91,7 @@ def test_agentic_generate_prompt_includes_api_prompt_for_python_dsg():
         api_prompt="API docs",
     )
 
-    rendered = prompt.to_openai_json()
+    rendered = render_openai_prompt(prompt)
     assert {"role": "developer", "content": "API docs"} in rendered
 
 
@@ -144,7 +147,7 @@ def test_agentic_pipeline_uses_python_api_prompt(monkeypatch):
 
     analyzed = result.analyzed_questions[0]
     assert analyzed.analysis.correct
-    rendered = FakeContext.instances[0].prompt.to_openai_json()
+    rendered = render_openai_prompt(FakeContext.instances[0].prompt)
     assert {"role": "developer", "content": "API docs"} in rendered
 
 
@@ -230,6 +233,6 @@ def test_feedforward_codegen_pipeline_happy_path(monkeypatch):
         "refinement-agent",
     ]
     assert "API docs" in [
-        item["content"] for item in FakeContext.instances[0].prompt.to_openai_json()
+        item["content"] for item in render_openai_prompt(FakeContext.instances[0].prompt)
     ]
     assert "Results: 2" in FakeContext.instances[1].prompt.novel_instruction

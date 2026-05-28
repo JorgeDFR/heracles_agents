@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 from openai.types.responses.response import Response
@@ -11,6 +11,7 @@ from openai.types.responses.response_reasoning_item import ResponseReasoningItem
 from pydantic import BaseModel
 
 import heracles_agents.provider_integrations.openai.openai_agent_integration as openai_agent
+from heracles_agents.agent_functions import extract_answer_tag
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openai.openai_client import OpenaiClientConfig
@@ -183,14 +184,14 @@ def test_openai_answer_tool_normalizes_as_answer_tool():
 
 
 def test_openai_update_and_answer_extraction():
-    message = make_message("prefix <answer>42</answer>")
+    message = make_message("<answer>42</answer>")
     response = make_response([message])
     agent = make_openai_agent()
 
     assert openai_agent.generate_update_for_history(agent, response) == [message]
     assert openai_agent.extract_answer(
         agent,
-        lambda text: text.split("<answer>")[1].split("</answer>")[0],
+        extract_answer_tag,
         message,
     ) == "42"
 
@@ -201,9 +202,12 @@ def test_openai_token_count_uses_gpt5_alias():
     agent = make_openai_agent()
     agent.model_info.model = "gpt-5.4-mini"
 
-    with patch.object(openai_agent.tiktoken, "encoding_for_model", return_value=encoder) as by_model:
+    with patch(
+        "heracles_agents.provider_integrations.openai.token_counting.tiktoken.encoding_for_model",
+        return_value=encoder,
+    ) as by_model:
         assert openai_agent.count_message_tokens(agent, {"role": "user", "content": "hi"}) == 9
-        by_model.assert_called_once_with("gpt-5-latest")
+        assert by_model.call_args_list == [call("gpt-5-latest"), call("gpt-5-latest")]
 
 
 class DummyFormat(BaseModel):

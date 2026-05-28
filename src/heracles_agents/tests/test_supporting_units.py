@@ -28,16 +28,20 @@ from heracles_agents.summarize_results import (
     summarize_results,
     to_string,
 )
-from heracles_agents.token_utils import get_token_encoder
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
-from heracles_agents.tool_rendering import (
-    render_anthropic_tool,
-    render_bedrock_tool,
-    render_custom_tool,
-    render_ollama_tool,
-    render_openai_tool,
-    render_openrouter_tool,
+from heracles_agents.token_utils import count_text_tokens, estimate_text_tokens
+from heracles_agents.provider_integrations.openai.token_counting import (
+    count_openai_text_tokens,
 )
+from heracles_agents.provider_integrations.openrouter.token_counting import (
+    count_openrouter_text_tokens,
+)
+from heracles_agents.tool_interface import FunctionParameter, ToolDescription
+from heracles_agents.tool_rendering import render_custom_tool
+from heracles_agents.provider_integrations.anthropic.tool_rendering import render_anthropic_tool
+from heracles_agents.provider_integrations.bedrock.tool_rendering import render_bedrock_tool
+from heracles_agents.provider_integrations.ollama.tool_rendering import render_ollama_tool
+from heracles_agents.provider_integrations.openai.tool_rendering import render_openai_tool
+from heracles_agents.provider_integrations.openrouter.tool_rendering import render_openrouter_tool
 from heracles_agents.tool_registry import ToolRegistry, register_tool
 from heracles_agents.tools.answer_tool import answer_tool
 from heracles_agents.tools.calculator_tool import test_calculator as calculator_fn
@@ -106,21 +110,37 @@ def test_tool_registry_registers_duplicates_and_validates_arg_types(capsys):
         ToolRegistry.get_arg_type("sample", "count")
 
 
-def test_token_encoder_uses_gpt5_alias_and_fallback():
-    alias_encoder = object()
-    fallback_encoder = object()
+def test_provider_aware_token_counting_uses_openai_alias_and_estimate_fallback():
+    encoder = Mock()
+    encoder.encode.side_effect = lambda text: list(text)
 
-    with (
-        patch("heracles_agents.token_utils.tiktoken.encoding_for_model") as by_model,
-        patch("heracles_agents.token_utils.tiktoken.get_encoding") as get_encoding,
+    with patch(
+        "heracles_agents.provider_integrations.openai.token_counting.tiktoken.encoding_for_model",
+        return_value=encoder,
+    ) as by_model:
+        assert count_openai_text_tokens("gpt-5.4-mini", "abc") == 3
+        by_model.assert_called_once_with("gpt-5-latest")
+
+    with patch(
+        "heracles_agents.provider_integrations.openai.token_counting.tiktoken.encoding_for_model",
+        side_effect=KeyError("unknown"),
     ):
-        by_model.side_effect = [alias_encoder, KeyError("unknown")]
-        get_encoding.return_value = fallback_encoder
+        assert count_openai_text_tokens("unknown-model", "hello world") == estimate_text_tokens(
+            "hello world"
+        )
 
-        assert get_token_encoder("gpt-5.4-mini") is alias_encoder
-        assert by_model.call_args_list[0].args == ("gpt-5-latest",)
-        assert get_token_encoder("unknown-model") is fallback_encoder
-        get_encoding.assert_called_once_with("cl100k_base")
+    with patch(
+        "heracles_agents.provider_integrations.openai.token_counting.tiktoken.encoding_for_model",
+        return_value=encoder,
+    ) as by_model:
+        assert count_openrouter_text_tokens("openai/gpt-5.4-mini", "abcd") == 4
+        by_model.assert_called_once_with("gpt-5-latest")
+
+    agent = SimpleNamespace(
+        client=SimpleNamespace(client_type="unknown"),
+        model_info=SimpleNamespace(model="unknown-model"),
+    )
+    assert count_text_tokens(agent, "hello world") == estimate_text_tokens("hello world")
 
 
 def test_summarize_results_counts_numeric_fields_and_formats_values():
@@ -187,6 +207,7 @@ def test_agent_function_helpers_and_custom_tool_calls():
         call_custom_tool_from_string(tools, "missing(value='x')")
 
     assert extract_tag("answer", "x<answer>first</answer><answer>second</answer>") == "second"
+    assert extract_tag("answer", "x<answer>first<answer>second</answer>") == "second"
     assert extract_answer_tag("<answer>done</answer>") == "done"
     assert extract_answer_tag("missing") is None
 

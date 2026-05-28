@@ -2,7 +2,6 @@
 
 import copy
 import logging
-import tiktoken
 
 from collections.abc import Callable
 from plum import dispatch
@@ -21,6 +20,12 @@ from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.ollama.ollama_client import (
     OllamaClientConfig,
 )
+from heracles_agents.provider_integrations.ollama.prompt_rendering import (
+    render_ollama_prompt,
+)
+import heracles_agents.provider_integrations.ollama.tool_rendering  # noqa: F401
+import heracles_agents.provider_integrations.ollama.token_counting  # noqa: F401
+from heracles_agents.token_utils import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +35,7 @@ def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[OllamaClientConfig
     p = copy.deepcopy(prompt)
     if agent.agent_info.tool_interface == "custom":
         p.tool_description = build_custom_tool_prompt(agent.agent_info.tools.values())
-    return p.to_anthropic_json()
+    return render_ollama_prompt(p)
 
 
 @dispatch
@@ -155,5 +160,4 @@ def normalize_message(agent: LlmAgent[OllamaClientConfig], tool_call: Message.To
 
 @dispatch
 def count_message_tokens(agent: LlmAgent[OllamaClientConfig], message: dict):
-    enc = tiktoken.get_encoding("cl100k_base")
-    return len(enc.encode(message["content"]))
+    return count_text_tokens(agent, message["content"])

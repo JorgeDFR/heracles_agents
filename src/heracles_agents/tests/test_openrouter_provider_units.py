@@ -5,6 +5,7 @@ import pytest
 from openrouter.components import ChatAssistantMessage, ChatChoice, ChatResult, ChatToolCall
 
 import heracles_agents.provider_integrations.openrouter.openrouter_agent_integration as openrouter_agent
+from heracles_agents.agent_functions import extract_answer_tag
 from heracles_agents.exceptions import (
     LlmAuthenticationError,
     LlmBadRequestError,
@@ -146,7 +147,7 @@ def test_openrouter_function_and_custom_tool_calls():
 
 
 def test_openrouter_update_answer_and_tokens():
-    message = ChatAssistantMessage(role="assistant", content="prefix <answer>42</answer>")
+    message = ChatAssistantMessage(role="assistant", content="<answer>42</answer>")
     response = make_result(message)
     agent = make_openrouter_agent()
 
@@ -154,7 +155,7 @@ def test_openrouter_update_answer_and_tokens():
     assert (
         openrouter_agent.extract_answer(
             agent,
-            lambda text: text.split("<answer>")[1].split("</answer>")[0],
+            extract_answer_tag,
             response,
         )
         == "42"
@@ -162,7 +163,7 @@ def test_openrouter_update_answer_and_tokens():
     assert (
         openrouter_agent.extract_answer(
             agent,
-            lambda text: text.split("<answer>")[1].split("</answer>")[0],
+            extract_answer_tag,
             message,
         )
         == "42"
@@ -171,9 +172,7 @@ def test_openrouter_update_answer_and_tokens():
         agent, lambda text: text, ChatAssistantMessage(role="assistant", content=None)
     ) == ""
 
-    encoder = Mock()
-    encoder.encode.side_effect = lambda value: list(str(value))
-    with patch.object(openrouter_agent.tiktoken, "get_encoding", return_value=encoder):
+    with patch.object(openrouter_agent, "count_text_tokens", side_effect=lambda agent, value: len(str(value))):
         assert openrouter_agent.count_message_tokens(agent, {"content": "abcd"}) == 4
         assert openrouter_agent.count_message_tokens(agent, {"role": "assistant"}) == 0
 

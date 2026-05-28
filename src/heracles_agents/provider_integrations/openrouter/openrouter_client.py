@@ -2,73 +2,24 @@ from typing import Literal
 
 import logging
 from openrouter import OpenRouter
-try:
-    from openrouter.errors import (
-        TooManyRequestsResponseError,
-        RequestTimeoutResponseError,
-        EdgeNetworkTimeoutResponseError,
-        ServiceUnavailableResponseError,
-        ProviderOverloadedResponseError,
-        InternalServerResponseError,
-        BadGatewayResponseError,
-        NoResponseError,
-        UnauthorizedResponseError,
-        ForbiddenResponseError,
-        BadRequestResponseError,
-        UnprocessableEntityResponseError,
-        PayloadTooLargeResponseError,
-        NotFoundResponseError,
-        ConflictResponseError,
-        OpenRouterError,
-    )
-except ImportError:
-    class OpenRouterError(Exception):
-        pass
-
-    class TooManyRequestsResponseError(OpenRouterError):
-        pass
-
-    class RequestTimeoutResponseError(OpenRouterError):
-        pass
-
-    class EdgeNetworkTimeoutResponseError(OpenRouterError):
-        pass
-
-    class ServiceUnavailableResponseError(OpenRouterError):
-        pass
-
-    class ProviderOverloadedResponseError(OpenRouterError):
-        pass
-
-    class InternalServerResponseError(OpenRouterError):
-        pass
-
-    class BadGatewayResponseError(OpenRouterError):
-        pass
-
-    class NoResponseError(OpenRouterError):
-        pass
-
-    class UnauthorizedResponseError(OpenRouterError):
-        pass
-
-    class ForbiddenResponseError(OpenRouterError):
-        pass
-
-    class BadRequestResponseError(OpenRouterError):
-        pass
-
-    class UnprocessableEntityResponseError(OpenRouterError):
-        pass
-
-    class PayloadTooLargeResponseError(OpenRouterError):
-        pass
-
-    class NotFoundResponseError(OpenRouterError):
-        pass
-
-    class ConflictResponseError(OpenRouterError):
-        pass
+from openrouter.errors import (
+    TooManyRequestsResponseError,
+    RequestTimeoutResponseError,
+    EdgeNetworkTimeoutResponseError,
+    ServiceUnavailableResponseError,
+    ProviderOverloadedResponseError,
+    InternalServerResponseError,
+    BadGatewayResponseError,
+    NoResponseError,
+    UnauthorizedResponseError,
+    ForbiddenResponseError,
+    BadRequestResponseError,
+    UnprocessableEntityResponseError,
+    PayloadTooLargeResponseError,
+    NotFoundResponseError,
+    ConflictResponseError,
+    OpenRouterError,
+)
 
 from pydantic import Field, PrivateAttr, SecretStr
 from pydantic_settings import BaseSettings

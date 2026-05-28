@@ -3,7 +3,6 @@
 import copy
 import json
 import logging
-import tiktoken
 
 from collections.abc import Callable
 from plum import dispatch
@@ -24,6 +23,12 @@ from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openrouter.openrouter_client import (
     OpenRouterClientConfig,
 )
+from heracles_agents.provider_integrations.openrouter.prompt_rendering import (
+    render_openrouter_prompt,
+)
+import heracles_agents.provider_integrations.openrouter.tool_rendering  # noqa: F401
+import heracles_agents.provider_integrations.openrouter.token_counting  # noqa: F401
+from heracles_agents.token_utils import count_text_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +38,7 @@ def generate_prompt_for_agent(prompt: Prompt, agent: LlmAgent[OpenRouterClientCo
     p = copy.deepcopy(prompt)
     if agent.agent_info.tool_interface == "custom":
         p.tool_description = build_custom_tool_prompt(agent.agent_info.tools.values())
-    return p.to_anthropic_json()
+    return render_openrouter_prompt(p)
 
 
 @dispatch
@@ -188,6 +193,5 @@ def normalize_message(agent: LlmAgent[OpenRouterClientConfig], tool_call: ChatTo
 
 @dispatch
 def count_message_tokens(agent: LlmAgent[OpenRouterClientConfig], message: dict):
-    enc = tiktoken.get_encoding("cl100k_base")
     content = message.get("content") or ""
-    return len(enc.encode(content))
+    return count_text_tokens(agent, content)
