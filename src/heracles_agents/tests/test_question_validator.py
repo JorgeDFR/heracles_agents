@@ -1,6 +1,6 @@
 import pytest
 
-from heracles_agents import question_validator
+from heracles_agents.cli import question_validator
 from heracles_agents.llm_interface import EvalQuestion
 
 

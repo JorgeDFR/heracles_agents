@@ -1,5 +1,5 @@
-from heracles_agents.structured_tool_interface import StructuredToolDescription
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription, type_to_string
+from heracles_agents.tool_calling.structured_tool_description import StructuredToolDescription
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription, type_to_string
 
 _TOOL_RENDERERS = {}
 

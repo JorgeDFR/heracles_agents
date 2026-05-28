@@ -1,4 +1,4 @@
-from heracles_agents.custom_tool_call_parser import lark_parse_tool
+from heracles_agents.tool_calling.custom_parser import lark_parse_tool
 
 
 def test_simple():

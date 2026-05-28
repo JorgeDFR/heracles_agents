@@ -131,7 +131,7 @@ if __name__ == "__main__":
     import yaml
 
     from heracles_agents.experiment_definition import ExperimentConfiguration
-    from heracles_agents.summarize_results import display_experiment_results
+    from heracles_agents.cli.summarize_results import display_experiment_results
 
     logging.basicConfig(level=logging.INFO)
 

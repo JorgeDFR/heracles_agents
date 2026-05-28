@@ -18,7 +18,7 @@ from heracles_agents.exceptions import (
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.ollama.ollama_client import OllamaClientConfig
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 
 
 def make_ollama_agent(**agent_info_overrides):

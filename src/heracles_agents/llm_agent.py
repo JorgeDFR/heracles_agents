@@ -10,9 +10,9 @@ from heracles_agents.prompt import PromptSettings
 from heracles_agents.pydantic_discriminated_dispatch import (
     discriminated_union_dispatch,
 )
-from heracles_agents.structured_tool_interface import StructuredToolDescription
-from heracles_agents.tool_interface import ToolDescription
-from heracles_agents.tool_registry import ToolRegistry
+from heracles_agents.tool_calling.structured_tool_description import StructuredToolDescription
+from heracles_agents.tool_calling.tool_description import ToolDescription
+from heracles_agents.tool_calling.registry import ToolRegistry
 
 
 class ModelInfo(BaseModel):

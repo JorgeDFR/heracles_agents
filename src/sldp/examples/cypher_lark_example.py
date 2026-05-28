@@ -1,7 +1,12 @@
+from importlib.resources import as_file, files
+
 from lark import Lark
 
-with open("cypher.lark", "r") as fo:
-    cypher_bnf = fo.read()
+import sldp
+
+with as_file(files(sldp).joinpath("resources", "cypher.lark")) as path:
+    with open(str(path), "r") as fo:
+        cypher_bnf = fo.read()
 
 parser = Lark(cypher_bnf, start="query")
 tree = parser.parse('MATCH (p: Place {nodeSymbol: "P32"}) RETURN p')

@@ -5,13 +5,13 @@ and FunctionParameter class with all supported types.
 
 import pytest
 
-from heracles_agents.tool_interface import (
+from heracles_agents.tool_calling.tool_description import (
     FunctionParameter,
     ToolDescription,
 )
 from heracles_agents.provider_integrations.anthropic.tool_rendering import render_anthropic_tool
 from heracles_agents.provider_integrations.ollama.tool_rendering import render_ollama_tool
-from heracles_agents.tool_rendering import (
+from heracles_agents.tool_calling.rendering import (
     render_custom_parameter,
     render_custom_tool,
     render_parameter,

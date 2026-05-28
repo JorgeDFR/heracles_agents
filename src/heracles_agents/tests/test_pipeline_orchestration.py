@@ -12,7 +12,7 @@ from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openai.prompt_rendering import (
     render_openai_prompt,
 )
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 
 
 def make_question(uid="q1"):

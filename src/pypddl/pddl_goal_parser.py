@@ -15,7 +15,7 @@ from pypddl.pddl_goal_types import (
 
 
 def get_pddl_goal_lark_grammar():
-    with as_file(files(pypddl).joinpath("pddl_goal.lark")) as path:
+    with as_file(files(pypddl).joinpath("resources", "pddl_goal.lark")) as path:
         with open(str(path), "r") as fo:
             pddl_goal_grammar = fo.read()
     return pddl_goal_grammar

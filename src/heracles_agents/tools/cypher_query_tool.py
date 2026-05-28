@@ -1,8 +1,8 @@
 from heracles.query_interface import Neo4jWrapper
 
 from heracles_agents.dsg_interfaces import HeraclesDsgInterface
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
-from heracles_agents.tool_registry import ToolRegistry, register_tool
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 
 
 def query_db(cypher_string, dsgdb_conf: HeraclesDsgInterface = None):

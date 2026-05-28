@@ -34,7 +34,7 @@ class PddlDomainTransformer(Transformer):
 
 
 def get_pddl_domain_lark_grammar():
-    with as_file(files(pypddl).joinpath("pddl_domain.lark")) as path:
+    with as_file(files(pypddl).joinpath("resources", "pddl_domain.lark")) as path:
         with open(str(path), "r") as fo:
             pddl_domain_grammar = fo.read()
     return pddl_domain_grammar
@@ -54,6 +54,7 @@ def lark_parse_pddl_domain(string):
 
 
 if __name__ == "__main__":
-    with open("example_domain.pddl", "r") as fo:
-        domain = fo.read()
+    with as_file(files(pypddl).joinpath("resources", "example_domain.pddl")) as path:
+        with open(str(path), "r") as fo:
+            domain = fo.read()
     a = lark_parse_pddl_domain(domain)

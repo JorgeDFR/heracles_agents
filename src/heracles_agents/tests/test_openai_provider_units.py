@@ -15,7 +15,7 @@ from heracles_agents.agent_functions import extract_answer_tag
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.prompt import Prompt
 from heracles_agents.provider_integrations.openai.openai_client import OpenaiClientConfig
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 
 
 def make_openai_agent(**agent_info_overrides):

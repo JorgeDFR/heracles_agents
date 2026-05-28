@@ -1,8 +1,8 @@
 import os
 import time
 
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
-from heracles_agents.tool_registry import ToolRegistry, register_tool
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 
 
 def visualize_objects(objects: str, x: str, y: str, clear: bool, viz_topic: str = None):

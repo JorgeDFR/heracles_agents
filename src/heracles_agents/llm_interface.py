@@ -33,7 +33,7 @@ from heracles_agents.normalized_response import (
     NormalizedMessage,
     normalized_summary,
 )
-from heracles_agents.tool_rendering import has_tool_renderer, render_tool_for_interface
+from heracles_agents.tool_calling.rendering import has_tool_renderer, render_tool_for_interface
 
 logger = logging.getLogger(__name__)
 

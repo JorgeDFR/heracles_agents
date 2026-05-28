@@ -61,7 +61,7 @@ class TestExperimentParsing:
         self.experiment_data = load_experiment_file(self.experiment_file)
 
         # Ensure required tools are registered (in case other tests cleared them)
-        from heracles_agents.tool_registry import ToolRegistry, register_tool
+        from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 
         if "ask_favog" not in ToolRegistry.tools:
             register_tool(favog_tool)

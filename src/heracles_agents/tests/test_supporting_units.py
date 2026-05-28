@@ -21,8 +21,8 @@ from heracles_agents.provider_integrations.bedrock.bedrock_agent_integration imp
     BedrockMessage,
     get_bedrock_block_summary,
 )
-from heracles_agents.structured_tool_interface import StructuredToolDescription
-from heracles_agents.summarize_results import (
+from heracles_agents.tool_calling.structured_tool_description import StructuredToolDescription
+from heracles_agents.cli.summarize_results import (
     colorize,
     generate_table,
     summarize_results,
@@ -35,14 +35,14 @@ from heracles_agents.provider_integrations.openai.token_counting import (
 from heracles_agents.provider_integrations.openrouter.token_counting import (
     count_openrouter_text_tokens,
 )
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
-from heracles_agents.tool_rendering import render_custom_tool
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.rendering import render_custom_tool
 from heracles_agents.provider_integrations.anthropic.tool_rendering import render_anthropic_tool
 from heracles_agents.provider_integrations.bedrock.tool_rendering import render_bedrock_tool
 from heracles_agents.provider_integrations.ollama.tool_rendering import render_ollama_tool
 from heracles_agents.provider_integrations.openai.tool_rendering import render_openai_tool
 from heracles_agents.provider_integrations.openrouter.tool_rendering import render_openrouter_tool
-from heracles_agents.tool_registry import ToolRegistry, register_tool
+from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 from heracles_agents.tools.answer_tool import answer_tool
 from heracles_agents.tools.calculator_tool import test_calculator as calculator_fn
 from heracles_agents.tools.canary_favog_tool import the_mighty_favog

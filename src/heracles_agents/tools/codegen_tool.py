@@ -4,8 +4,8 @@ import math
 import spark_dsg
 
 from heracles_agents.dsg_interfaces import PythonDsgInterface
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
-from heracles_agents.tool_registry import ToolRegistry, register_tool
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 from heracles_agents.tools.timeouts import FunctionTimeoutError, run_with_timeout
 
 logger = logging.getLogger(__name__)

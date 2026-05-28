@@ -6,12 +6,12 @@ from typing import Any
 from lark.exceptions import LarkError
 from plum import dispatch
 
-from heracles_agents.custom_tool_call_parser import lark_parse_tool
+from heracles_agents.tool_calling.custom_parser import lark_parse_tool
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.normalized_response import NormalizedMessage
 from heracles_agents.prompt import Prompt
 from heracles_agents.token_utils import count_text_tokens
-from heracles_agents.tool_rendering import render_custom_tool
+from heracles_agents.tool_calling.rendering import render_custom_tool
 
 logger = logging.getLogger(__name__)
 

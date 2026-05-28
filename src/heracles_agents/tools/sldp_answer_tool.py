@@ -1,5 +1,5 @@
-from heracles_agents.structured_tool_interface import StructuredToolDescription
-from heracles_agents.tool_registry import ToolRegistry, register_tool
+from heracles_agents.tool_calling.structured_tool_description import StructuredToolDescription
+from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 from sldp.lark_parser import get_sldp_lark_grammar
 
 sldp_tool = StructuredToolDescription(

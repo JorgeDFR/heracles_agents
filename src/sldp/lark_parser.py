@@ -40,7 +40,7 @@ class SldpTransformer(Transformer):
 
 
 def get_sldp_lark_grammar():
-    with as_file(files(sldp).joinpath("sldp.lark")) as path:
+    with as_file(files(sldp).joinpath("resources", "sldp.lark")) as path:
         with open(str(path), "r") as fo:
             sldp_grammar = fo.read()
     return sldp_grammar

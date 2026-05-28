@@ -25,8 +25,8 @@ from heracles_agents.provider_integrations.openai.prompt_rendering import (
     render_openai_example,
     render_openai_prompt,
 )
-from heracles_agents.tool_interface import FunctionParameter, ToolDescription
-from heracles_agents.tool_registry import ToolRegistry
+from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
+from heracles_agents.tool_calling.registry import ToolRegistry
 
 
 class BoundConfig(BaseModel):

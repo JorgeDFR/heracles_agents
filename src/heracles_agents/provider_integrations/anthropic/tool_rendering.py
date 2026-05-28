@@ -1,5 +1,5 @@
-from heracles_agents.structured_tool_interface import StructuredToolDescription
-from heracles_agents.tool_rendering import (
+from heracles_agents.tool_calling.structured_tool_description import StructuredToolDescription
+from heracles_agents.tool_calling.rendering import (
     register_tool_renderer,
     render_parameter_properties,
 )

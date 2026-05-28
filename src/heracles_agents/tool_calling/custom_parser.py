@@ -50,7 +50,7 @@ class ToolCallTransformer(Transformer):
 
 
 def get_custom_tool_call_lark_grammar():
-    with as_file(files(heracles_agents).joinpath("tool_call.lark")) as path:
+    with as_file(files(heracles_agents).joinpath("resources", "tool_call.lark")) as path:
         with open(str(path), "r") as fo:
             tool_call_grammar = fo.read()
     return tool_call_grammar

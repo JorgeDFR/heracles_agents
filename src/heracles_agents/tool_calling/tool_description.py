@@ -4,7 +4,7 @@ from typing import Any, Callable, Optional
 
 from pydantic import BaseModel, PrivateAttr, model_validator
 
-from heracles_agents.tool_registry import ToolRegistry
+from heracles_agents.tool_calling.registry import ToolRegistry
 
 
 def type_to_string(typ):
