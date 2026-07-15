@@ -20,7 +20,6 @@ from heracles.utils import load_dsg_to_db
 
 from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.llm_interface import AgentContext
-from heracles_agents.agent_functions import build_custom_tool_prompt
 
 # ------------------------------------------------------------------------------
 # Logging
@@ -55,13 +54,14 @@ def new_user_message(text):
 
 def generate_initial_prompt(agent_config: LlmAgent):
     prompt = copy.deepcopy(agent_config.agent_info.prompt_settings.base_prompt)
-
-    if agent_config.agent_info.tool_interface == "custom":
-        prompt.tool_description = build_custom_tool_prompt(
-            agent_config.agent_info.tools.values()
-        )
-
+    prompt.novel_instruction = "Now you will interact with the user:"
     return prompt
+
+
+def initialize_messages(agent_config: LlmAgent):
+    cxt = AgentContext(agent_config)
+    cxt.initialize_agent(generate_initial_prompt(agent_config))
+    return cxt.history
 
 
 def is_tool_message(text: str) -> bool:
@@ -301,9 +301,7 @@ def main():
     # Initialize conversation
     # --------------------------------------------------------------------------
 
-    messages = generate_initial_prompt(agent).to_anthropic_json(
-        "Now you will interact with the user:"
-    )
+    messages = initialize_messages(agent)
 
     print_welcome()
 

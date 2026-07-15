@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import copy
 import logging
 import os
 import threading
@@ -25,8 +26,15 @@ def new_user_message(text):
 
 
 def generate_initial_prompt(agent: LlmAgent):
-    prompt = agent.agent_info.prompt_settings.base_prompt
+    prompt = copy.deepcopy(agent.agent_info.prompt_settings.base_prompt)
+    prompt.novel_instruction = "Now you will interact with the user:"
     return prompt
+
+
+def initialize_messages(agent: LlmAgent):
+    cxt = AgentContext(agent)
+    cxt.initialize_agent(generate_initial_prompt(agent))
+    return cxt.history
 
 
 class MyTextArea(TextArea):
@@ -41,9 +49,7 @@ class MyTextArea(TextArea):
 class InputDisplayApp(App):
     def __init__(self, agent):
         self.agent = agent
-        self.messages = generate_initial_prompt(agent).to_openai_json(
-            "Now you will interact with the user:"
-        )
+        self.messages = initialize_messages(agent)
         super().__init__()
 
     def compose(self) -> ComposeResult:
