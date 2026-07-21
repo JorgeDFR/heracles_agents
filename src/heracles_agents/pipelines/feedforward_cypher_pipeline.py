@@ -1,5 +1,6 @@
 import copy
 import logging
+from time import perf_counter
 
 from heracles_agents.agent_functions import build_custom_tool_prompt
 from heracles_agents.experiment_definition import (
@@ -15,6 +16,8 @@ from heracles_agents.llm_interface import (
     EvalQuestion,
     LlmAgent,
     QuestionAnalysis,
+    make_cost_metrics,
+    make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
 from heracles_agents.pipelines.db_utils import query_db
@@ -55,12 +58,17 @@ def feedforward_cypher(exp):
     analyzed_questions = []
 
     for question in exp.questions:
+        question_started = perf_counter()
+        contexts = []
+        neo4j_query_seconds = 0.0
+        parsing_validation_seconds = 0.0
         answer = None
         sequences = []
         completed = False
         try:
             logger.info(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["generate-cypher"])
+            contexts.append(cxt)
 
             prompt = generate_prompt(question, exp.phases["generate-cypher"])
             #logger.info(f"\nLLM Prompt (Generate Cypher): {prompt}\n")
@@ -75,9 +83,14 @@ def feedforward_cypher(exp):
             )
             sequences.append(cypher_generation_sequence)
 
-            success, query_result = query_db(exp.dsg_interface, answer)
+            query_started = perf_counter()
+            try:
+                success, query_result = query_db(exp.dsg_interface, answer)
+            finally:
+                neo4j_query_seconds += perf_counter() - query_started
 
             cxt2 = AgentContext(exp.phases["refine"])
+            contexts.append(cxt2)
             refinement_prompt = generate_prompt(
                 question,
                 exp.phases["refine"],
@@ -89,9 +102,13 @@ def feedforward_cypher(exp):
             success, answer = cxt2.run()
             logger.info(f"LLM Final Answer: {answer}")
 
-            valid_format, correct = evaluate_answer(
-                question.correctness_comparator, answer, question.solution
-            )
+            validation_started = perf_counter()
+            try:
+                valid_format, correct = evaluate_answer(
+                    question.correctness_comparator, answer, question.solution
+                )
+            finally:
+                parsing_validation_seconds += perf_counter() - validation_started
 
             logger.info(f"\n\nCorrect? {correct}\n\n")
 
@@ -110,6 +127,13 @@ def feedforward_cypher(exp):
                 input_tokens=n_input_tokens,
                 output_tokens=n_output_tokens,
                 n_tool_calls=n_tool_calls,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                    neo4j_query_seconds=neo4j_query_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
             completed = True
 
@@ -123,6 +147,13 @@ def feedforward_cypher(exp):
                 input_tokens=0,
                 output_tokens=0,
                 n_tool_calls=0,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                    neo4j_query_seconds=neo4j_query_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
 
         aq = AnalyzedQuestion(

@@ -1,5 +1,6 @@
 import copy
 import logging
+from time import perf_counter
 
 from heracles_agents.experiment_definition import (
     PipelineDescription,
@@ -14,6 +15,8 @@ from heracles_agents.llm_interface import (
     EvalQuestion,
     LlmAgent,
     QuestionAnalysis,
+    make_cost_metrics,
+    make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
 from heracles_agents.pipelines.in_context_utils import scene_graph_to_prompt_full
@@ -56,11 +59,15 @@ def generate_prompt(
 def incontext_dsg(exp):
     analyzed_questions = []
     for question in exp.questions:
+        question_started = perf_counter()
+        contexts = []
+        parsing_validation_seconds = 0.0
         answer = None
         sequences = []
         completed = False
         try:
             cxt = AgentContext(exp.phases["main"])
+            contexts.append(cxt)
 
             prompt = generate_prompt(exp.dsg_interface, question, exp.phases["main"])
 
@@ -73,9 +80,13 @@ def incontext_dsg(exp):
             )
             sequences.append(sequence)
 
-            valid_format, correct = evaluate_answer(
-                question.correctness_comparator, answer, question.solution
-            )
+            validation_started = perf_counter()
+            try:
+                valid_format, correct = evaluate_answer(
+                    question.correctness_comparator, answer, question.solution
+                )
+            finally:
+                parsing_validation_seconds += perf_counter() - validation_started
 
             logger.info(f"\n\nCorrect? {correct}\n\n")
 
@@ -85,6 +96,12 @@ def incontext_dsg(exp):
                 input_tokens=cxt.initial_input_tokens,
                 output_tokens=cxt.total_output_tokens,
                 n_tool_calls=cxt.n_tool_calls,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
             completed = True
 
@@ -98,6 +115,12 @@ def incontext_dsg(exp):
                 input_tokens=0,
                 output_tokens=0,
                 n_tool_calls=0,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
 
         aq = AnalyzedQuestion(

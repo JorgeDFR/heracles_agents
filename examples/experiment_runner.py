@@ -100,6 +100,23 @@ def output_path_for(experiment_path: Path, output_dir: Path) -> Path:
     return output_dir / provider_dir / f"{experiment_name}_results.yaml"
 
 
+def build_llm_metadata(
+    experiment: ExperimentDescription, configuration_names: set[str]
+) -> dict[str, dict]:
+    llm_configurations = {}
+    for configuration_name, experiment_config in experiment.configurations.items():
+        if configuration_name not in configuration_names:
+            continue
+        phases = {}
+        for phase_name, agent in experiment_config.phases.items():
+            phases[phase_name] = {
+                "provider": agent.client.client_type,
+                "model_identifier": agent.model_info.model,
+            }
+        llm_configurations[configuration_name] = {"phases": phases}
+    return llm_configurations
+
+
 def run_experiment(
     experiment_path: Path,
     output_dir: Path,
@@ -150,13 +167,14 @@ def run_experiment(
 
     elapsed_s = perf_counter() - started_at
     analyzed_experiment = AnalyzedExperiment(
-        experiment_configurations=results,
         metadata={
             **experiment.metadata,
             "source_experiment": str(experiment_path),
             "elapsed_seconds": round(elapsed_s, 3),
             "failed_configurations": failures,
+            "llm_configurations": build_llm_metadata(experiment, set(results)),
         },
+        experiment_configurations=results,
     )
 
     result_path = output_path_for(experiment_path, output_dir)

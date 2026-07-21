@@ -1,5 +1,6 @@
 import copy
 import logging
+from time import perf_counter
 
 from heracles_agents.agent_functions import build_custom_tool_prompt
 from heracles_agents.experiment_definition import (
@@ -12,10 +13,11 @@ from heracles_agents.llm_interface import (
     AgentSequence,
     AnalyzedQuestion,
     AnalyzedQuestions,
-    QuestionAnalysis,
     EvalQuestion,
     LlmAgent,
     QuestionAnalysis,
+    make_cost_metrics,
+    make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
 from heracles_agents.pipelines.prompt_utils import get_answer_formatting_guidance
@@ -55,12 +57,16 @@ def canary_pipeline(exp):
     analyzed_questions = []
 
     for question in exp.questions:
+        question_started = perf_counter()
+        contexts = []
+        parsing_validation_seconds = 0.0
         answer = None
         sequences = []
         completed = False
         try:
             logger.info(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["main"])
+            contexts.append(cxt)
 
             prompt = generate_prompt(question, exp.phases["main"])
             #logger.info(f"\nLLM Prompt: {prompt}\n")
@@ -69,9 +75,13 @@ def canary_pipeline(exp):
             success, answer = cxt.run()
             logger.info(f"\nLLM Answer: {answer}\n")
 
-            valid_format, correct = evaluate_answer(
-                question.correctness_comparator, answer, question.solution
-            )
+            validation_started = perf_counter()
+            try:
+                valid_format, correct = evaluate_answer(
+                    question.correctness_comparator, answer, question.solution
+                )
+            finally:
+                parsing_validation_seconds += perf_counter() - validation_started
             logger.info(f"\n\nCorrect? {correct}\n\n")
 
             agent_sequence = AgentSequence(
@@ -85,6 +95,12 @@ def canary_pipeline(exp):
                 input_tokens=cxt.initial_input_tokens,
                 output_tokens=cxt.total_output_tokens,
                 n_tool_calls=cxt.n_tool_calls,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
             completed = True
 
@@ -98,6 +114,12 @@ def canary_pipeline(exp):
                 input_tokens=0,
                 output_tokens=0,
                 n_tool_calls=0,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
 
         aq = AnalyzedQuestion(

@@ -8,6 +8,17 @@ from heracles_agents.exceptions import LlmRateLimitError
 from heracles_agents.llm_interface import (
     AgentContext,
     AgentResponse,
+    AgentSequence,
+    AnalyzedExperiment,
+    AnalyzedQuestion,
+    AnalyzedQuestions,
+    CostMetrics,
+    LlmCallCost,
+    LatencyMetrics,
+    QuestionAnalysis,
+    EvalQuestion,
+    make_cost_metrics,
+    make_latency_metrics,
     is_answer_tool_call,
     needs_tool_processing,
     process_answer,
@@ -102,6 +113,8 @@ def test_agent_context_initialize_and_call_llm_retries(monkeypatch):
     monkeypatch.setattr(llm_interface, "count_message_tokens", lambda agent, messages: 7)
     monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda agent_info: ["tool"])
     monkeypatch.setattr(llm_interface.time, "sleep", lambda seconds: None)
+    metric_times = iter([1.0, 1.25, 2.0, 2.5, 3.0, 3.5])
+    monkeypatch.setattr(llm_interface.time, "perf_counter", lambda: next(metric_times))
 
     context.initialize_agent("prompt")
     assert context.history == ["hello"]
@@ -110,6 +123,8 @@ def test_agent_context_initialize_and_call_llm_retries(monkeypatch):
     assert context.call_llm(context.history) == "ok"
     assert len(calls) == 2
     assert calls[-1][1:] == (["tool"], "text", ["hello"])
+    assert context.llm_call_seconds == 0.75
+    assert context.retry_wait_seconds == 0.5
 
 
 def test_agent_context_call_llm_uses_model_response_format(monkeypatch):
@@ -133,6 +148,35 @@ def test_agent_context_call_llm_uses_model_response_format(monkeypatch):
 
     assert context.call_llm(["history"]) == "ok"
     assert calls == ["json"]
+
+
+def test_agent_context_records_openrouter_cost_call(monkeypatch):
+    response = SimpleNamespace(
+        id="gen-1",
+        model="served/model",
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=4, cost=0.0002),
+    )
+    agent = make_agent(
+        model_info=SimpleNamespace(model="requested/model", temperature=0.1),
+        client=SimpleNamespace(
+            client_type="openrouter",
+            call=lambda *args: response,
+        ),
+    )
+    context = AgentContext(agent)
+
+    monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda agent_info: [])
+    monkeypatch.setattr(llm_interface, "count_message_tokens", lambda agent, messages: 99)
+
+    assert context.call_llm(["history"]) is response
+    assert len(context.llm_call_costs) == 1
+    assert context.llm_call_costs[0].provider == "openrouter"
+    assert context.llm_call_costs[0].model_identifier == "served/model"
+    assert context.llm_call_costs[0].input_tokens == 12
+    assert context.llm_call_costs[0].output_tokens == 4
+    assert context.llm_call_costs[0].request_cost_usd == 0.0002
+    assert context.llm_call_costs[0].pricing_source == "openrouter_response_usage"
+    assert context.llm_call_costs[0].provider_response_id == "gen-1"
 
 
 def test_agent_context_call_llm_raises_after_retries(monkeypatch):
@@ -168,12 +212,15 @@ def test_agent_context_handle_response_processes_only_tool_messages(monkeypatch)
         "make_tool_response",
         lambda agent, message, result: {"message": message, "result": result},
     )
+    metric_times = iter([1.0, 1.4])
+    monkeypatch.setattr(llm_interface.time, "perf_counter", lambda: next(metric_times))
 
     assert context.handle_response("response") == [
         {"message": "tool-call", "result": "result"}
     ]
     assert context.n_tool_calls == 1
     assert context.total_output_tokens == 4
+    assert context.tool_execution_seconds == pytest.approx(0.4)
 
 
 def test_agent_context_history_done_and_responses(monkeypatch):
@@ -200,6 +247,231 @@ def test_agent_context_history_done_and_responses(monkeypatch):
         AgentResponse(raw_response="start", parsed_response="summary:start"),
         AgentResponse(raw_response="update", parsed_response="summary:update"),
     ]
+
+
+def test_experiment_result_dump_uses_compact_ordered_yaml_shape():
+    question = EvalQuestion(
+        uid="q1",
+        name="Question",
+        question="What is 1 + 1?",
+        solution="2",
+        correctness_comparator={"comparison_type": "SLDP", "relation": "equal"},
+    )
+    response = AgentResponse(raw_response="raw", parsed_response="parsed")
+    analyzed_question = AnalyzedQuestion(
+        question=question,
+        answer="2",
+        analysis=QuestionAnalysis(
+            valid_answer_format=True,
+            correct=True,
+            input_tokens=10,
+            output_tokens=2,
+            n_tool_calls=1,
+            latency=LatencyMetrics(
+                end_to_end_seconds=1.0,
+                llm_call_seconds=0.8,
+                tool_execution_seconds=0.1,
+                parsing_validation_seconds=0.01,
+            ),
+        ),
+        completed=True,
+        sequences=[
+            AgentSequence(description="main", responses=[response]),
+        ],
+    )
+    experiment = AnalyzedExperiment(
+        metadata={"source_experiment": "experiment.yaml"},
+        experiment_configurations={
+            "configuration": AnalyzedQuestions(analyzed_questions=[analyzed_question])
+        },
+    )
+
+    dumped_response = response.model_dump(mode="json")
+    dumped_question = analyzed_question.model_dump(mode="json")
+    dumped_experiment = experiment.model_dump(mode="json")
+
+    assert "analysis" not in dumped_response
+    assert list(dumped_question) == [
+        "question",
+        "answer",
+        "analysis",
+        "completed",
+        "sequences",
+    ]
+    assert list(dumped_experiment) == ["metadata", "experiment_configurations"]
+    assert (
+        "analysis"
+        not in dumped_experiment["experiment_configurations"]["configuration"][
+            "analyzed_questions"
+        ][0]["sequences"][0]["responses"][0]
+    )
+    assert dumped_question["analysis"]["latency"] == {
+        "end_to_end_seconds": 1.0,
+        "llm_call_seconds": 0.8,
+        "tool_execution_seconds": 0.1,
+        "neo4j_query_seconds": 0.0,
+        "parsing_validation_seconds": 0.01,
+        "retry_wait_seconds": 0.0,
+        "time_to_first_token_seconds": None,
+    }
+    assert "cost" not in dumped_question["analysis"]
+    assert (
+        "cost_summary"
+        not in dumped_experiment["experiment_configurations"]["configuration"]
+    )
+
+
+def test_make_latency_metrics_aggregates_contexts():
+    contexts = [
+        SimpleNamespace(
+            llm_call_seconds=1.2345678,
+            tool_execution_seconds=0.2,
+            retry_wait_seconds=0.3,
+            time_to_first_token_seconds=0.9,
+        ),
+        SimpleNamespace(
+            llm_call_seconds=2.0,
+            tool_execution_seconds=0.4,
+            retry_wait_seconds=0.0,
+            time_to_first_token_seconds=0.7,
+        ),
+    ]
+
+    latency = make_latency_metrics(
+        contexts,
+        end_to_end_seconds=4.567891,
+        parsing_validation_seconds=0.05,
+        neo4j_query_seconds=0.25,
+    )
+
+    assert latency.end_to_end_seconds == 4.567891
+    assert latency.llm_call_seconds == 3.234568
+    assert latency.tool_execution_seconds == 0.6
+    assert latency.retry_wait_seconds == 0.3
+    assert latency.parsing_validation_seconds == 0.05
+    assert latency.neo4j_query_seconds == 0.25
+    assert latency.time_to_first_token_seconds == 0.7
+
+
+def test_openrouter_cost_metrics_use_generation_stats():
+    call = LlmCallCost(
+        provider="openrouter",
+        model_identifier="requested/model",
+        input_tokens=10,
+        output_tokens=2,
+        pricing_source="openrouter_generation_api_pending",
+        provider_response_id="gen-1",
+    )
+    context = SimpleNamespace(
+        agent=SimpleNamespace(
+            client=SimpleNamespace(
+                get_generation_stats=lambda generation_id: {
+                    "id": generation_id,
+                    "model": "served/model",
+                    "native_tokens_prompt": 11,
+                    "native_tokens_completion": 3,
+                    "total_cost": "0.0000123",
+                }
+            )
+        ),
+        llm_call_costs=[call],
+    )
+
+    cost = make_cost_metrics([context])
+
+    assert cost.total_cost_usd == 0.0000123
+    assert cost.cost_basis == "provider_reported"
+    assert cost.llm_calls[0].model_identifier == "served/model"
+    assert cost.llm_calls[0].input_tokens == 11
+    assert cost.llm_calls[0].output_tokens == 3
+    assert cost.llm_calls[0].billed_input_tokens == 11
+    assert cost.llm_calls[0].billed_output_tokens == 3
+    assert cost.llm_calls[0].pricing_source == "openrouter_generation_api"
+
+
+def test_openrouter_cost_metrics_fall_back_to_model_pricing():
+    call = LlmCallCost(
+        provider="openrouter",
+        model_identifier="served/model",
+        input_tokens=10,
+        output_tokens=2,
+        pricing_source="openrouter_generation_api_pending",
+        provider_response_id="gen-1",
+    )
+    context = SimpleNamespace(
+        agent=SimpleNamespace(
+            client=SimpleNamespace(
+                get_generation_stats=lambda generation_id: None,
+                get_model_pricing=lambda model_identifier: {
+                    "prompt": "0.000001",
+                    "completion": "0.000002",
+                    "request": "0.00001",
+                },
+            )
+        ),
+        llm_call_costs=[call],
+    )
+
+    cost = make_cost_metrics([context])
+
+    assert cost.total_cost_usd == 0.000024
+    assert cost.cost_basis == "provider_pricing_estimated"
+    assert cost.llm_calls[0].request_cost_usd == 0.000024
+    assert cost.llm_calls[0].pricing_source == "openrouter_model_pricing_api"
+
+
+def test_analyzed_questions_cost_summary_is_openrouter_only():
+    question = EvalQuestion(
+        uid="q1",
+        name="Question",
+        question="What is 1 + 1?",
+        solution="2",
+        correctness_comparator={"comparison_type": "SLDP", "relation": "equal"},
+    )
+    analyzed_questions = AnalyzedQuestions(
+        analyzed_questions=[
+            AnalyzedQuestion(
+                question=question,
+                answer="2",
+                analysis=QuestionAnalysis(
+                    valid_answer_format=True,
+                    correct=True,
+                    input_tokens=10,
+                    output_tokens=2,
+                    n_tool_calls=0,
+                    cost=CostMetrics(
+                        total_cost_usd=0.02,
+                        cost_basis="provider_reported",
+                        llm_calls=[],
+                    ),
+                ),
+                completed=True,
+                sequences=[],
+            ),
+            AnalyzedQuestion(
+                question=question.model_copy(update={"uid": "q2"}),
+                answer="3",
+                analysis=QuestionAnalysis(
+                    valid_answer_format=True,
+                    correct=False,
+                    input_tokens=10,
+                    output_tokens=2,
+                    n_tool_calls=0,
+                    cost=CostMetrics(
+                        total_cost_usd=0.03,
+                        cost_basis="provider_reported",
+                        llm_calls=[],
+                    ),
+                ),
+                completed=True,
+                sequences=[],
+            ),
+        ]
+    )
+
+    assert analyzed_questions.cost_summary.total_cost_usd == 0.05
+    assert analyzed_questions.cost_summary.cost_per_question_usd == 0.025
+    assert analyzed_questions.cost_summary.cost_per_correct_answer_usd == 0.05
 
 
 def test_agent_context_run_stops_when_step_done_and_processes_answer(monkeypatch):

@@ -4,7 +4,7 @@ import time
 from typing import Literal, Optional, Union
 
 from plum import dispatch
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from heracles_agents.agent_functions import (
     call_function,
@@ -69,7 +69,9 @@ class AgentResponse(BaseModel):
     raw_response: str
     # interpretable response from the LLM (e.g., tool call, parsed final answer)
     parsed_response: Optional[str]
-    analysis: "ResponseAnalysis" = Field(default_factory=lambda: ResponseAnalysis())
+    analysis: "ResponseAnalysis" = Field(
+        default_factory=lambda: ResponseAnalysis(), exclude=True
+    )
 
 
 class ResponseAnalysis(BaseModel):
@@ -86,6 +88,44 @@ class AgentSequence(BaseModel):
     responses: list[AgentResponse]
 
 
+class LatencyMetrics(BaseModel):
+    # Per-question wall-clock time and the measurable portions of that time.
+    end_to_end_seconds: float = 0.0
+    llm_call_seconds: float = 0.0
+    tool_execution_seconds: float = 0.0
+    neo4j_query_seconds: float = 0.0
+    parsing_validation_seconds: float = 0.0
+    retry_wait_seconds: float = 0.0
+    time_to_first_token_seconds: Optional[float] = None
+
+
+class LlmCallCost(BaseModel):
+    provider: str
+    model_identifier: str
+    input_tokens: int
+    output_tokens: int
+    request_cost_usd: Optional[float] = None
+    pricing_source: str
+    provider_response_id: Optional[str] = None
+    billed_input_tokens: Optional[int] = None
+    billed_output_tokens: Optional[int] = None
+
+
+class CostMetrics(BaseModel):
+    total_cost_usd: Optional[float] = None
+    cost_basis: str
+    currency: str = "USD"
+    llm_calls: list[LlmCallCost] = Field(default_factory=list)
+
+
+class CostSummary(BaseModel):
+    total_cost_usd: Optional[float] = None
+    cost_per_question_usd: Optional[float] = None
+    cost_per_correct_answer_usd: Optional[float] = None
+    currency: str = "USD"
+    cost_basis: str
+
+
 class QuestionAnalysis(BaseModel):
     # Information that is relevant about evaluating the response quality of the
     # "whole question"
@@ -95,23 +135,249 @@ class QuestionAnalysis(BaseModel):
     input_tokens: int
     output_tokens: int
     n_tool_calls: int
+    latency: LatencyMetrics = Field(default_factory=LatencyMetrics)
+    cost: Optional[CostMetrics] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class AnalyzedQuestion(BaseModel):
     question: EvalQuestion
-    sequences: list[AgentSequence]
     answer: Optional[str]
     analysis: Optional[QuestionAnalysis]
     completed: bool = True
+    sequences: list[AgentSequence]
 
 
 class AnalyzedQuestions(BaseModel):
     analyzed_questions: list[AnalyzedQuestion]
+    cost_summary: Optional[CostSummary] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def populate_cost_summary(self):
+        if self.cost_summary is None:
+            self.cost_summary = make_cost_summary(self.analyzed_questions)
+        return self
 
 
 class AnalyzedExperiment(BaseModel):
-    experiment_configurations: dict[str, AnalyzedQuestions]
     metadata: dict = Field(default_factory=dict)
+    experiment_configurations: dict[str, AnalyzedQuestions]
+
+
+def make_latency_metrics(
+    contexts,
+    *,
+    end_to_end_seconds: float,
+    parsing_validation_seconds: float = 0.0,
+    neo4j_query_seconds: float = 0.0,
+) -> LatencyMetrics:
+    first_token_times = [
+        getattr(context, "time_to_first_token_seconds", None)
+        for context in contexts
+        if getattr(context, "time_to_first_token_seconds", None) is not None
+    ]
+    return LatencyMetrics(
+        end_to_end_seconds=round(end_to_end_seconds, 6),
+        llm_call_seconds=round(
+            sum(getattr(context, "llm_call_seconds", 0.0) for context in contexts), 6
+        ),
+        tool_execution_seconds=round(
+            sum(
+                getattr(context, "tool_execution_seconds", 0.0)
+                for context in contexts
+            ),
+            6,
+        ),
+        neo4j_query_seconds=round(neo4j_query_seconds, 6),
+        parsing_validation_seconds=round(parsing_validation_seconds, 6),
+        retry_wait_seconds=round(
+            sum(getattr(context, "retry_wait_seconds", 0.0) for context in contexts),
+            6,
+        ),
+        time_to_first_token_seconds=(
+            round(min(first_token_times), 6) if first_token_times else None
+        ),
+    )
+
+
+def make_cost_metrics(contexts) -> Optional[CostMetrics]:
+    calls = []
+    for context in contexts:
+        for call in getattr(context, "llm_call_costs", []):
+            if call.provider != "openrouter":
+                continue
+            calls.append(_populate_openrouter_cost(context, call))
+
+    if not calls:
+        return None
+
+    known_costs = [call.request_cost_usd for call in calls]
+    if all(cost is not None for cost in known_costs):
+        total_cost_usd = round(sum(known_costs), 12)
+        pricing_sources = {call.pricing_source for call in calls}
+        if pricing_sources <= {
+            "openrouter_response_usage",
+            "openrouter_generation_api",
+        }:
+            cost_basis = "provider_reported"
+        elif pricing_sources == {"openrouter_model_pricing_api"}:
+            cost_basis = "provider_pricing_estimated"
+        else:
+            cost_basis = "provider_reported_and_estimated"
+    elif any(cost is not None for cost in known_costs):
+        total_cost_usd = None
+        cost_basis = "provider_reported_partial"
+    else:
+        total_cost_usd = None
+        cost_basis = "provider_reported_unavailable"
+
+    return CostMetrics(
+        total_cost_usd=total_cost_usd,
+        cost_basis=cost_basis,
+        llm_calls=calls,
+    )
+
+
+def make_cost_summary(analyzed_questions: list["AnalyzedQuestion"]):
+    question_costs = []
+    known_costs = []
+    for analyzed_question in analyzed_questions:
+        analysis = analyzed_question.analysis
+        cost = getattr(analysis, "cost", None)
+        if cost is None:
+            continue
+        question_costs.append(cost.total_cost_usd)
+        if cost.total_cost_usd is not None:
+            known_costs.append(cost.total_cost_usd)
+
+    if not question_costs:
+        return None
+
+    if len(known_costs) != len(question_costs):
+        return CostSummary(cost_basis="provider_reported_incomplete")
+
+    total_cost_usd = round(sum(known_costs), 12)
+    n_questions = len(analyzed_questions)
+    n_correct = sum(
+        1
+        for analyzed_question in analyzed_questions
+        if getattr(getattr(analyzed_question, "analysis", None), "correct", False)
+    )
+    return CostSummary(
+        total_cost_usd=total_cost_usd,
+        cost_per_question_usd=round(total_cost_usd / n_questions, 12)
+        if n_questions
+        else None,
+        cost_per_correct_answer_usd=round(total_cost_usd / n_correct, 12)
+        if n_correct
+        else None,
+        cost_basis="provider_reported",
+    )
+
+
+def _populate_openrouter_cost(context, call: LlmCallCost) -> LlmCallCost:
+    if call.request_cost_usd is not None:
+        return call
+
+    estimated_call = _estimate_openrouter_cost_from_model_pricing(context, call)
+    if estimated_call.request_cost_usd is not None:
+        return estimated_call
+
+    if call.provider_response_id is None:
+        return call
+
+    client = getattr(getattr(context, "agent", None), "client", None)
+    get_generation_stats = getattr(client, "get_generation_stats", None)
+    if get_generation_stats is None:
+        return call
+
+    stats = get_generation_stats(call.provider_response_id)
+    if not isinstance(stats, dict):
+        return _estimate_openrouter_cost_from_model_pricing(context, call)
+
+    request_cost_usd = _coerce_float(stats.get("total_cost"))
+    billed_input_tokens = _coerce_int(
+        stats.get("native_tokens_prompt", stats.get("tokens_prompt"))
+    )
+    billed_output_tokens = _coerce_int(
+        stats.get("native_tokens_completion", stats.get("tokens_completion"))
+    )
+    model_identifier = stats.get("model") or call.model_identifier
+
+    updated_call = call.model_copy(
+        update={
+            "model_identifier": model_identifier,
+            "input_tokens": billed_input_tokens or call.input_tokens,
+            "output_tokens": billed_output_tokens or call.output_tokens,
+            "request_cost_usd": request_cost_usd,
+            "pricing_source": "openrouter_generation_api"
+            if request_cost_usd is not None
+            else "openrouter_generation_api_unavailable",
+            "billed_input_tokens": billed_input_tokens,
+            "billed_output_tokens": billed_output_tokens,
+        }
+    )
+    if request_cost_usd is None:
+        return _estimate_openrouter_cost_from_model_pricing(context, updated_call)
+    return updated_call
+
+
+def _estimate_openrouter_cost_from_model_pricing(
+    context, call: LlmCallCost
+) -> LlmCallCost:
+    client = getattr(getattr(context, "agent", None), "client", None)
+    get_model_pricing = getattr(client, "get_model_pricing", None)
+    if get_model_pricing is None:
+        return call
+
+    pricing = get_model_pricing(call.model_identifier)
+    if not isinstance(pricing, dict):
+        return call
+
+    prompt_price = _coerce_float(pricing.get("prompt")) or 0.0
+    completion_price = _coerce_float(pricing.get("completion")) or 0.0
+    request_price = _coerce_float(pricing.get("request")) or 0.0
+    request_cost_usd = (
+        call.input_tokens * prompt_price
+        + call.output_tokens * completion_price
+        + request_price
+    )
+
+    return call.model_copy(
+        update={
+            "request_cost_usd": round(request_cost_usd, 12),
+            "pricing_source": "openrouter_model_pricing_api",
+        }
+    )
+
+
+def _coerce_float(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_int(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_attr_or_key(value, name):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)
 
 
 def generate_tools_for_agent(agent_info):
@@ -213,6 +479,11 @@ class AgentContext:
         self.n_tool_calls = 0
         self.initial_input_tokens = 0
         self.total_output_tokens = 0
+        self.llm_call_seconds = 0.0
+        self.tool_execution_seconds = 0.0
+        self.retry_wait_seconds = 0.0
+        self.time_to_first_token_seconds = None
+        self.llm_call_costs = []
 
     def initialize_agent(self, prompt):
         self.history = generate_prompt_for_agent(prompt, self.agent)
@@ -233,12 +504,24 @@ class AgentContext:
         last_exception = None
         for idx in range(n_retries):
             try:
-                return self.agent.client.call(
+                llm_call_started = time.perf_counter()
+                provider = getattr(
+                    getattr(self.agent, "client", None), "client_type", None
+                )
+                input_tokens = (
+                    count_message_tokens(self.agent, history)
+                    if provider == "openrouter"
+                    else 0
+                )
+                response = self.agent.client.call(
                     model_info,
                     explicit_tools,
                     response_format,
                     history,
                 )
+                self.llm_call_seconds += time.perf_counter() - llm_call_started
+                self.record_llm_call_cost(response, input_tokens)
+                return response
 
             # ----------------------------------------------------------
             # Retryable errors
@@ -249,22 +532,64 @@ class AgentContext:
                 LlmServiceUnavailableError,
                 LlmConnectionError,
             ) as ex:
+                self.llm_call_seconds += time.perf_counter() - llm_call_started
                 last_exception = ex
                 logging.warning(
                     f"{type(ex).__name__}: {ex}\n"
                     f"Retrying in {wait_time_s}s "
                     f"({idx + 1}/{n_retries})"
                 )
+                retry_wait_started = time.perf_counter()
                 time.sleep(wait_time_s)
+                self.retry_wait_seconds += time.perf_counter() - retry_wait_started
 
             # ----------------------------------------------------------
             # Fatal provider errors
             # ----------------------------------------------------------
             except Exception as ex:
+                self.llm_call_seconds += time.perf_counter() - llm_call_started
                 logger.error(f"LLM provider call failed: {ex}")
                 raise
 
         raise RuntimeError(f"LLM call failed after {n_retries} retries") from last_exception
+
+    def record_llm_call_cost(self, response, input_tokens: int):
+        provider = getattr(getattr(self.agent, "client", None), "client_type", None)
+        if provider != "openrouter":
+            return
+
+        usage = getattr(response, "usage", None)
+        usage_input_tokens = _coerce_int(_get_attr_or_key(usage, "prompt_tokens"))
+        usage_output_tokens = _coerce_int(
+            _get_attr_or_key(usage, "completion_tokens")
+        )
+        usage_cost = _coerce_float(_get_attr_or_key(usage, "cost"))
+        output_tokens = usage_output_tokens
+        if output_tokens is None:
+            try:
+                output_tokens = count_message_tokens(self.agent, response)
+            except Exception:
+                output_tokens = 0
+
+        self.llm_call_costs.append(
+            LlmCallCost(
+                provider="openrouter",
+                model_identifier=getattr(
+                    response,
+                    "model",
+                    getattr(getattr(self.agent, "model_info", None), "model", ""),
+                ),
+                input_tokens=usage_input_tokens or input_tokens,
+                output_tokens=output_tokens or 0,
+                request_cost_usd=usage_cost,
+                pricing_source="openrouter_response_usage"
+                if usage_cost is not None
+                else "openrouter_generation_api_pending",
+                provider_response_id=getattr(response, "id", None),
+                billed_input_tokens=usage_input_tokens,
+                billed_output_tokens=usage_output_tokens,
+            )
+        )
 
     def handle_response(self, response):
         executed_tool_calls = []
@@ -280,7 +605,13 @@ class AgentContext:
 
             self.n_tool_calls += 1
 
-            result = call_function(self.agent, message)
+            tool_execution_started = time.perf_counter()
+            try:
+                result = call_function(self.agent, message)
+            finally:
+                self.tool_execution_seconds += (
+                    time.perf_counter() - tool_execution_started
+                )
             logger.debug(f"function_result: {result}")
             tool_response = make_tool_response(self.agent, message, result)
             logger.debug(f"Tool response: {result}")

@@ -20,7 +20,7 @@ def to_string(value):
     elif type(value) is float:
         return str(value)
     else:
-        return value
+        return str(value)
 
 
 def colorize(color, string):
@@ -55,11 +55,29 @@ def summarize_results(questions: list[dict]):
 def construct_per_question_info(aqs: AnalyzedQuestions):
     per_question_info = []
     for q in aqs.analyzed_questions:
-        answer_dict = q.analysis.model_dump(mode="json")
+        answer_dict = flatten_analysis_dict(q.analysis.model_dump(mode="json"))
         answer_dict["name"] = q.question.name
         answer_dict["question"] = q.question.question
         per_question_info.append(answer_dict)
     return per_question_info
+
+
+def flatten_analysis_dict(answer_dict):
+    latency = answer_dict.pop("latency", None)
+    if isinstance(latency, dict):
+        display_keys = {
+            "end_to_end_seconds": "latency_e2e_s",
+            "llm_call_seconds": "latency_llm_s",
+            "tool_execution_seconds": "latency_tool_s",
+            "neo4j_query_seconds": "latency_neo4j_s",
+            "parsing_validation_seconds": "latency_validation_s",
+        }
+        for key, display_key in display_keys.items():
+            answer_dict[display_key] = latency.get(key)
+    cost = answer_dict.pop("cost", None)
+    if isinstance(cost, dict):
+        answer_dict["cost_total_usd"] = cost.get("total_cost_usd")
+    return answer_dict
 
 
 def display_analyzed_question_table(title, aqs: AnalyzedQuestions, column_data_map={}):
@@ -111,7 +129,10 @@ def display_experiment_results(aqs, title="Title"):
     summary_column_data_map = {
         "# Questions": "questions",
     }
-    result_dicts = [q.analysis.model_dump(mode="json") for q in aqs.analyzed_questions]
+    result_dicts = [
+        flatten_analysis_dict(q.analysis.model_dump(mode="json"))
+        for q in aqs.analyzed_questions
+    ]
     summary_data = [summarize_results(result_dicts)[1]]
     display_table("Summary", summary_data, column_data_map=summary_column_data_map)
 

@@ -24,6 +24,7 @@ from heracles_agents.provider_integrations.bedrock.bedrock_agent_integration imp
 from heracles_agents.tool_calling.structured_tool_description import StructuredToolDescription
 from heracles_agents.cli.summarize_results import (
     colorize,
+    flatten_analysis_dict,
     generate_table,
     summarize_results,
     to_string,
@@ -170,6 +171,32 @@ def test_summarize_results_counts_numeric_fields_and_formats_values():
     assert to_string(3) == "3"
     assert to_string(1.25) == "1.25"
     assert to_string("raw") == "raw"
+    assert to_string({"nested": "value"}) == "{'nested': 'value'}"
+
+
+def test_flatten_analysis_dict_expands_latency_metrics():
+    flattened = flatten_analysis_dict(
+        {
+            "correct": True,
+            "latency": {
+                "end_to_end_seconds": 1.2,
+                "llm_call_seconds": 1.0,
+            },
+            "cost": {
+                "total_cost_usd": 0.001,
+            },
+        }
+    )
+
+    assert flattened == {
+        "correct": True,
+        "latency_e2e_s": 1.2,
+        "latency_llm_s": 1.0,
+        "latency_tool_s": None,
+        "latency_neo4j_s": None,
+        "latency_validation_s": None,
+        "cost_total_usd": 0.001,
+    }
 
 
 def test_generate_table_uses_remapped_columns_first():

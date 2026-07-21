@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+from time import perf_counter
 
 from heracles_agents.experiment_definition import (
     PipelineDescription,
@@ -16,6 +17,8 @@ from heracles_agents.llm_interface import (
     EvalQuestion,
     LlmAgent,
     QuestionAnalysis,
+    make_cost_metrics,
+    make_latency_metrics,
 )
 from heracles_agents.pipelines.codegen_utils import (
     execute_generated_code,
@@ -74,6 +77,9 @@ def feedforward_codegen(exp):
     # Set api in prompt
     api_string = exp.dsg_interface.get_dsg_api_prompt()
     for question in exp.questions:
+        question_started = perf_counter()
+        contexts = []
+        parsing_validation_seconds = 0.0
         answer = None
         sequences = []
         completed = False
@@ -83,6 +89,7 @@ def feedforward_codegen(exp):
                 copy.deepcopy(scene_graph) if copy_dsg_per_question else scene_graph
             )
             cxt = AgentContext(exp.phases["generate-code"])
+            contexts.append(cxt)
 
             prompt = generate_prompt(
                 question, exp.phases["generate-code"], api_prompt=api_string
@@ -102,6 +109,7 @@ def feedforward_codegen(exp):
             success, code_results = execute_generated_code(answer, question_scene_graph)
 
             cxt2 = AgentContext(exp.phases["refine"])
+            contexts.append(cxt2)
             refinement_prompt = generate_prompt(
                 question,
                 exp.phases["refine"],
@@ -114,9 +122,13 @@ def feedforward_codegen(exp):
                 raise RuntimeError("Refinement agent failed before producing an answer")
             logger.info(f"LLM Final Answer: {answer}")
 
-            valid_format, correct = evaluate_answer(
-                question.correctness_comparator, answer, question.solution
-            )
+            validation_started = perf_counter()
+            try:
+                valid_format, correct = evaluate_answer(
+                    question.correctness_comparator, answer, question.solution
+                )
+            finally:
+                parsing_validation_seconds += perf_counter() - validation_started
 
             logger.info(f"\n\nCorrect? {correct}\n\n")
 
@@ -134,6 +146,12 @@ def feedforward_codegen(exp):
                 input_tokens=n_input_tokens,
                 output_tokens=n_output_tokens,
                 n_tool_calls=cxt.n_tool_calls + cxt2.n_tool_calls,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
             completed = True
         except Exception as ex:
@@ -146,6 +164,12 @@ def feedforward_codegen(exp):
                 input_tokens=0,
                 output_tokens=0,
                 n_tool_calls=0,
+                latency=make_latency_metrics(
+                    contexts,
+                    end_to_end_seconds=perf_counter() - question_started,
+                    parsing_validation_seconds=parsing_validation_seconds,
+                ),
+                cost=make_cost_metrics(contexts),
             )
 
         aq = AnalyzedQuestion(

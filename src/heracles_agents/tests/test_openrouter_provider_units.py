@@ -191,6 +191,7 @@ def test_openrouter_client_payload_and_error_mapping():
         "messages": ["message"],
         "tools": ["tool"],
         "temperature": 0.1,
+        "x_open_router_metadata": "enabled",
         "seed": 123,
         "reasoning": {"effort": "medium"},
     }
@@ -223,3 +224,87 @@ def test_openrouter_client_payload_and_error_mapping():
     client._client = SimpleNamespace(chat=SimpleNamespace(send=Mock(return_value="ok")))
     assert client.call(model_info, [], "text", []) == "ok"
     client._client.chat.send.assert_called_once()
+
+
+def test_openrouter_client_fetches_generation_stats(monkeypatch):
+    client = OpenRouterClientConfig.model_construct()
+    client.auth_key = SimpleNamespace(get_secret_value=lambda: "secret")
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {"data": {"total_cost": "0.001"}},
+    )
+    get = Mock(return_value=response)
+    monkeypatch.setattr(
+        "heracles_agents.provider_integrations.openrouter.openrouter_client.httpx.get",
+        get,
+    )
+
+    assert client.get_generation_stats("gen-1") == {"total_cost": "0.001"}
+    get.assert_called_once_with(
+        "https://openrouter.ai/api/v1/generation",
+        params={"id": "gen-1"},
+        headers={"Authorization": "Bearer secret"},
+        timeout=10,
+    )
+
+
+def test_openrouter_client_generation_stats_retries(monkeypatch):
+    client = OpenRouterClientConfig.model_construct()
+    client.auth_key = SimpleNamespace(get_secret_value=lambda: "secret")
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {"data": {"total_cost": "0.001"}},
+    )
+    get = Mock(side_effect=[RuntimeError("not ready"), response])
+    monkeypatch.setattr(
+        "heracles_agents.provider_integrations.openrouter.openrouter_client.httpx.get",
+        get,
+    )
+    sleep = Mock()
+    monkeypatch.setattr(
+        "heracles_agents.provider_integrations.openrouter.openrouter_client.time.sleep",
+        sleep,
+    )
+
+    assert client.get_generation_stats("gen-1", attempts=2, wait_time_s=0.25) == {
+        "total_cost": "0.001"
+    }
+    assert get.call_count == 2
+    sleep.assert_called_once_with(0.25)
+
+
+def test_openrouter_client_fetches_model_pricing(monkeypatch):
+    client = OpenRouterClientConfig.model_construct()
+    client.auth_key = SimpleNamespace(get_secret_value=lambda: "secret")
+    client._model_pricing_cache = {}
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "data": [
+                {"id": "other/model", "pricing": {"prompt": "1"}},
+                {
+                    "id": "target/model",
+                    "pricing": {"prompt": "0.1", "completion": "0.2"},
+                },
+            ]
+        },
+    )
+    get = Mock(return_value=response)
+    monkeypatch.setattr(
+        "heracles_agents.provider_integrations.openrouter.openrouter_client.httpx.get",
+        get,
+    )
+
+    assert client.get_model_pricing("target/model") == {
+        "prompt": "0.1",
+        "completion": "0.2",
+    }
+    assert client.get_model_pricing("target/model") == {
+        "prompt": "0.1",
+        "completion": "0.2",
+    }
+    get.assert_called_once_with(
+        "https://openrouter.ai/api/v1/models",
+        headers={"Authorization": "Bearer secret"},
+        timeout=10,
+    )

@@ -60,6 +60,10 @@ class FakeContext:
         self.initial_input_tokens = 1
         self.total_output_tokens = 2
         self.n_tool_calls = 3
+        self.llm_call_seconds = 0.1
+        self.tool_execution_seconds = 0.2
+        self.retry_wait_seconds = 0.3
+        self.time_to_first_token_seconds = None
         self.prompt = None
         self.answer = "2"
         FakeContext.instances.append(self)
@@ -109,6 +113,10 @@ def test_canary_pipeline_happy_path(monkeypatch):
     assert analyzed.analysis.input_tokens == 1
     assert analyzed.analysis.output_tokens == 2
     assert analyzed.analysis.n_tool_calls == 3
+    assert analyzed.analysis.latency.end_to_end_seconds >= 0
+    assert analyzed.analysis.latency.llm_call_seconds == 0.1
+    assert analyzed.analysis.latency.tool_execution_seconds == 0.2
+    assert analyzed.analysis.latency.retry_wait_seconds == 0.3
     assert analyzed.sequences[0].description == "canary-agent"
     assert FakeContext.instances[0].prompt.novel_instruction == "Question: What is 1 + 1?"
 
@@ -129,6 +137,7 @@ def test_canary_pipeline_marks_failed_question_incomplete(monkeypatch):
     assert analyzed.sequences == []
     assert analyzed.completed is False
     assert analyzed.analysis.correct is False
+    assert analyzed.analysis.latency.end_to_end_seconds >= 0
 
 
 def test_agentic_pipeline_uses_python_api_prompt(monkeypatch):
@@ -182,6 +191,9 @@ def test_feedforward_cypher_pipeline_happy_path(monkeypatch):
     assert analyzed.analysis.input_tokens == 2
     assert analyzed.analysis.output_tokens == 4
     assert analyzed.analysis.n_tool_calls == 6
+    assert analyzed.analysis.latency.llm_call_seconds == 0.2
+    assert analyzed.analysis.latency.tool_execution_seconds == 0.4
+    assert analyzed.analysis.latency.neo4j_query_seconds >= 0
     assert [sequence.description for sequence in analyzed.sequences] == [
         "cypher-producing-agent",
         "refinement-agent",
@@ -228,6 +240,8 @@ def test_feedforward_codegen_pipeline_happy_path(monkeypatch):
     assert analyzed.analysis.input_tokens == 2
     assert analyzed.analysis.output_tokens == 4
     assert analyzed.analysis.n_tool_calls == 6
+    assert analyzed.analysis.latency.llm_call_seconds == 0.2
+    assert analyzed.analysis.latency.tool_execution_seconds == 0.4
     assert [sequence.description for sequence in analyzed.sequences] == [
         "codegen-agent",
         "refinement-agent",
