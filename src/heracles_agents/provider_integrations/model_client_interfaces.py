@@ -9,6 +9,9 @@ from heracles_agents.provider_integrations.bedrock.bedrock_client import (
 from heracles_agents.provider_integrations.ollama.ollama_client import (
     OllamaClientConfig,
 )
+from heracles_agents.provider_integrations.huggingface.huggingface_client import (
+    HuggingFaceClientConfig,
+)
 from heracles_agents.provider_integrations.openai.openai_client import (
     OpenaiClientConfig,
 )
@@ -20,6 +23,7 @@ ModelInterfaceConfigType = Union[
     OpenaiClientConfig,
     AnthropicClientConfig,
     OllamaClientConfig,
+    HuggingFaceClientConfig,
     BedrockClientConfig,
     OpenRouterClientConfig,
 ]

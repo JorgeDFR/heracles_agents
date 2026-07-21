@@ -23,9 +23,10 @@ setup(
     extras_require={
         "openai": ["openai"],
         "anthropic": ["anthropic"],
-        "ollama": ["ollama"],
         "bedrock": ["boto3"],
         "openrouter": ["openrouter"],
+        "ollama": ["ollama"],
+        "huggingface": [],
         "all": [
             "openai",
             "anthropic",

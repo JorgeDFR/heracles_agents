@@ -1,0 +1,10 @@
+accelerate
+bitsandbytes; platform_system == "Linux"
+fastapi
+peft
+protobuf
+sentencepiece
+tiktoken
+torch
+transformers
+uvicorn[standard]

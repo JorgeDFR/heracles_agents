@@ -1,6 +1,7 @@
 # ruff: noqa: F401
 import heracles_agents.provider_integrations.anthropic.anthropic_agent_integration
 import heracles_agents.provider_integrations.bedrock.bedrock_agent_integration
+import heracles_agents.provider_integrations.huggingface.huggingface_agent_integration
 import heracles_agents.provider_integrations.ollama.ollama_agent_integration
 import heracles_agents.provider_integrations.openai.openai_agent_integration
 import heracles_agents.provider_integrations.openrouter.openrouter_agent_integration

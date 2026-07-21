@@ -71,6 +71,9 @@ with the `--system-site-packages` option (which you would want anyway).
 | HERACLES\_OPENAI\_API\_KEY        | OpenAI API key to use                                                      |
 | HERACLES\_ANTHROPIC\_API\_KEY     | Anthropic API key to use                                                   |
 | AWS\_BEARER\_TOKEN\_BEDROCK       | If you want to use Bedrock                                                 |
+| HERACLES\_OPENROUTER\_API\_KEY    | OpenRouter API key to use                                                  |
+| OLLAMA\_HOST                      | Ollama server URL, e.g. http://ollama:11434                                |
+| HUGGINGFACE\_HOST                 | Hugging Face-compatible model server URL, e.g. http://huggingface:8000     |
 | HERACLES\_EVALUATION\_PATH        | Path to where this repo is cloned (only necessary for the example prompts  |
 | HERACLES\_NEO4J\_USERNAME         | Username of local Neo4j graph database                                     |
 | HERACLES\_NEO4J\_PASSWORD         | Password of local Neo4j graph database                                     |
@@ -202,8 +205,10 @@ Full examples can be found in [src/heracles\_agents/tools](src/heracles_agents/t
 Currently, `heracles_agents` supports the following LLM providers:
 * openai
 * anthropic
-* ollama
 * bedrock
+* openrouter
+* ollama
+* huggingface (custom HTTP server)
 
 We implement a "hand rolled" tool call implementation (i.e., LLM's express
 their intent to call a tool as part of the normal response body, as opposed to
