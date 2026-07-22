@@ -174,7 +174,9 @@ python examples/experiment_runner.py \
 ```
 
 Model sweep runs write one result YAML per generated model configuration under
-`output/<output-dir>/openrouter/<experiment-name>/`.
+`output/<output-dir>/openrouter/<experiment-name>/`. The file name includes the
+model alias, while the configuration name inside each result YAML stays stable
+for grouping, such as `agentic-cypher-qa` or `agentic-cypher-pddl`.
 
 To inspect saved result YAML files later, use the terminal summary:
 
@@ -192,13 +194,7 @@ HTML report:
 ```bash
 python examples/display_yaml_results.py output/openrouter/*.yaml \
   --mode html \
-  --output output/openrouter_report.html
-
-python examples/display_yaml_results.py \
-  output/openrouter/*.yaml \
-  output/openai_gpt-5.4-mini/*.yaml \
-  --mode html \
-  --output output/model_comparison.html
+  --output output/openrouter/report.html
 
 python examples/display_yaml_results.py \
   output/openrouter_model_sweep/openrouter/cypher_model_sweep/*_results.yaml \

@@ -82,15 +82,14 @@ def resolve_experiment_path(value: str) -> Path:
     raise FileNotFoundError(f"Experiment file not found. Checked: {checked}")
 
 
-def load_experiment_with_context(path: Path) -> tuple[ExperimentDescription, bool]:
+def load_experiment_with_context(path: Path) -> tuple[ExperimentDescription, dict]:
     os.environ.setdefault("HERACLES_AGENTS_PATH", str(REPO_ROOT))
     with path.open("r", encoding="utf-8") as fo:
         data = yaml.safe_load(fo)
     if not isinstance(data, dict):
         raise ValueError(f"Experiment file must contain a YAML mapping: {path}")
-    has_model_sweeps = "model_sweeps" in data
-    data, _ = expand_model_sweeps(data, path)
-    return ExperimentDescription(**data), has_model_sweeps
+    data, sweep_context = expand_model_sweeps(data, path)
+    return ExperimentDescription(**data), sweep_context
 
 
 def load_experiment(path: Path) -> ExperimentDescription:
@@ -131,19 +130,26 @@ def output_path_for_configuration(
 
 
 def build_llm_metadata(
-    experiment: ExperimentDescription, configuration_names: set[str]
+    experiment: ExperimentDescription,
+    configuration_names: set[str],
+    result_configuration_names: dict[str, str] | None = None,
 ) -> dict[str, dict]:
+    result_configuration_names = result_configuration_names or {}
     llm_configurations = {}
     for configuration_name, experiment_config in experiment.configurations.items():
         if configuration_name not in configuration_names:
             continue
+        result_configuration_name = result_configuration_names.get(
+            configuration_name,
+            configuration_name,
+        )
         phases = {}
         for phase_name, agent in experiment_config.phases.items():
             phases[phase_name] = {
                 "provider": agent.client.client_type,
                 "model_identifier": agent.model_info.model,
             }
-        llm_configurations[configuration_name] = {"phases": phases}
+        llm_configurations[result_configuration_name] = {"phases": phases}
     return llm_configurations
 
 
@@ -156,7 +162,9 @@ def run_experiment(
     display_results: bool,
 ) -> list[Path]:
     logger.info("Running experiment: %s", experiment_path)
-    experiment, has_model_sweeps = load_experiment_with_context(experiment_path)
+    experiment, sweep_context = load_experiment_with_context(experiment_path)
+    result_configuration_names = sweep_context.get("result_configuration_names", {})
+    has_model_sweeps = bool(result_configuration_names)
 
     unknown_configurations = (
         selected_configurations - set(experiment.configurations)
@@ -201,20 +209,29 @@ def run_experiment(
         "source_experiment": str(experiment_path),
         "elapsed_seconds": round(elapsed_s, 3),
         "failed_configurations": failures,
-        "llm_configurations": build_llm_metadata(experiment, set(results)),
     }
+    if not has_model_sweeps:
+        metadata["llm_configurations"] = build_llm_metadata(experiment, set(results))
+
     result_paths = []
     if has_model_sweeps:
         for configuration_name, analyzed_questions in results.items():
+            result_configuration_name = result_configuration_names.get(
+                configuration_name,
+                configuration_name,
+            )
             analyzed_experiment = AnalyzedExperiment(
                 metadata={
                     **metadata,
                     "llm_configurations": build_llm_metadata(
                         experiment,
                         {configuration_name},
+                        result_configuration_names,
                     ),
                 },
-                experiment_configurations={configuration_name: analyzed_questions},
+                experiment_configurations={
+                    result_configuration_name: analyzed_questions
+                },
             )
             result_path = output_path_for_configuration(
                 experiment_path,

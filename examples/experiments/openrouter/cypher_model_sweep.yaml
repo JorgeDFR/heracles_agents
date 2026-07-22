@@ -7,6 +7,7 @@ model_sweeps:
     provider: openrouter
     phase: main
     configuration_name_template: agentic-cypher-qa-{alias}
+    result_configuration_name: agentic-cypher-qa
     models_path: $HERACLES_AGENTS_PATH/examples/experiments/openrouter/model_lists/research_11.yaml
     template:
       dsg_interface:

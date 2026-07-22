@@ -58,6 +58,7 @@ def sweep_experiment(**sweep_overrides) -> dict:
         "provider": "openrouter",
         "phase": "main",
         "configuration_name_template": "agentic-cypher-qa-{alias}",
+        "result_configuration_name": "agentic-cypher-qa",
         "models": [
             {"alias": "enabled-model", "model": "provider/enabled", "enabled": True},
             {"alias": "disabled-model", "model": "provider/disabled", "enabled": False},
@@ -84,7 +85,7 @@ def test_no_model_sweeps_returns_experiment_unchanged(tmp_path):
 def test_inline_models_expand_and_skip_disabled_models(tmp_path):
     raw = sweep_experiment()
 
-    expanded, metadata = expand_model_sweeps(raw, tmp_path / "experiment.yaml")
+    expanded, context = expand_model_sweeps(raw, tmp_path / "experiment.yaml")
 
     configurations = expanded["configurations"]
     assert list(configurations) == ["agentic-cypher-qa-enabled-model"]
@@ -96,7 +97,11 @@ def test_inline_models_expand_and_skip_disabled_models(tmp_path):
     assert phase["model_info"]["seed"] == 123
     assert generated["pipeline"] == "agentic"
     assert generated["questions"].endswith("examples/questions/qa_questions.yaml")
-    assert metadata == {}
+    assert context == {
+        "result_configuration_names": {
+            "agentic-cypher-qa-enabled-model": "agentic-cypher-qa"
+        }
+    }
     assert "expanded_model_sweeps" not in expanded["metadata"]
 
 
@@ -116,13 +121,18 @@ def test_models_path_expands_to_configurations(tmp_path):
     raw = sweep_experiment(models_path=str(models_path))
     del raw["model_sweeps"]["openrouter-cypher"]["models"]
 
-    expanded, metadata = expand_model_sweeps(raw, tmp_path / "experiment.yaml")
+    expanded, context = expand_model_sweeps(raw, tmp_path / "experiment.yaml")
 
     assert set(expanded["configurations"]) == {
         "agentic-cypher-qa-first",
         "agentic-cypher-qa-second",
     }
-    assert metadata == {}
+    assert context == {
+        "result_configuration_names": {
+            "agentic-cypher-qa-first": "agentic-cypher-qa",
+            "agentic-cypher-qa-second": "agentic-cypher-qa",
+        }
+    }
 
 
 def test_manual_configurations_are_preserved(tmp_path):
@@ -159,7 +169,20 @@ def test_non_openrouter_provider_raises(tmp_path):
         expand_model_sweeps(raw, tmp_path / "experiment.yaml")
 
 
-def test_real_openrouter_sweep_files_expand_to_11_valid_configurations():
+def enabled_model_count() -> int:
+    model_list_path = (
+        project_root()
+        / "examples/experiments/openrouter/model_lists/research_11.yaml"
+    )
+    data = yaml.safe_load(model_list_path.read_text(encoding="utf-8"))
+    return sum(
+        1
+        for model in data["models"]
+        if isinstance(model, dict) and model.get("enabled", True) is not False
+    )
+
+
+def test_real_openrouter_sweep_files_expand_to_enabled_valid_configurations():
     if "agentic" not in PipelineRegistry.pipelines:
         register_pipeline(agentic_pipeline_description)
     if "run_cypher_query" not in ToolRegistry.tools:
@@ -188,11 +211,20 @@ def test_real_openrouter_sweep_files_expand_to_11_valid_configurations():
         spec = importlib.util.spec_from_file_location("experiment_runner", runner_path)
         experiment_runner = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(experiment_runner)
-        experiments = [experiment_runner.load_experiment(path) for path in paths]
+        loaded = [experiment_runner.load_experiment_with_context(path) for path in paths]
 
-    for experiment in experiments:
-        assert len(experiment.configurations) == 11
+    for experiment, _context in loaded:
+        assert len(experiment.configurations) == enabled_model_count()
         assert "expanded_model_sweeps" not in experiment.metadata
+
+    experiments = [experiment for experiment, _context in loaded]
+    contexts = [context for _experiment, context in loaded]
+    assert contexts[0]["result_configuration_names"][
+        "agentic-cypher-qa-deepseek-v4-flash"
+    ] == "agentic-cypher-qa"
+    assert contexts[1]["result_configuration_names"][
+        "agentic-cypher-pddl-deepseek-v4-flash"
+    ] == "agentic-cypher-pddl"
 
     assert (
         experiments[0]
@@ -204,11 +236,11 @@ def test_real_openrouter_sweep_files_expand_to_11_valid_configurations():
     )
     assert (
         experiments[1]
-        .configurations["agentic-cypher-pddl-claude-sonnet-5"]
+        .configurations["agentic-cypher-pddl-deepseek-v4-flash"]
         .phases["main"]
         .model_info
         .model
-        == "anthropic/claude-sonnet-5"
+        == "deepseek/deepseek-v4-flash"
     )
 
 
@@ -251,7 +283,10 @@ def test_sweep_run_writes_one_result_file_per_completed_configuration(
     monkeypatch.setattr(
         experiment_runner,
         "load_experiment_with_context",
-        lambda _path: (experiment, True),
+        lambda _path: (
+            experiment,
+            {"result_configuration_names": {"config-a": "agentic-cypher-qa"}},
+        ),
     )
 
     result_paths = experiment_runner.run_experiment(
@@ -269,10 +304,10 @@ def test_sweep_run_writes_one_result_file_per_completed_configuration(
         / "config-a_results.yaml"
     ]
     result = yaml.safe_load(result_paths[0].read_text(encoding="utf-8"))
-    assert list(result["experiment_configurations"]) == ["config-a"]
+    assert list(result["experiment_configurations"]) == ["agentic-cypher-qa"]
     assert "expanded_model_sweeps" not in result["metadata"]
     assert result["metadata"]["llm_configurations"] == {
-        "config-a": {
+        "agentic-cypher-qa": {
             "phases": {
                 "main": {
                     "provider": "openrouter",

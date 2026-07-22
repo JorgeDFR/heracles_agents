@@ -739,6 +739,24 @@ _HTML_TEMPLATE = """<!doctype html>
       max-width: 100%;
       overflow-x: auto;
     }
+    .report-section {
+      margin-top: 18px;
+    }
+    .report-section > summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      list-style-position: inside;
+      user-select: none;
+    }
+    .report-section > summary h2 {
+      display: inline;
+      margin: 0;
+    }
+    .section-body {
+      margin-top: 10px;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -841,19 +859,27 @@ _HTML_TEMPLATE = """<!doctype html>
     </div>
   </header>
   <main class="wrap">
-    <h2>Sources</h2>
-    <div id="sources"></div>
-    <h2>Overview</h2>
-    <div id="overview"></div>
-    <h2>Provider Models</h2>
-    <div id="providerModels"></div>
-    <h2>Questions</h2>
-    <div class="grid">
-      <div id="questions"></div>
-      <aside id="detail" class="panel detail">
-        <div class="muted">Select a question row to inspect details.</div>
-      </aside>
-    </div>
+    <details class="report-section" open>
+      <summary><h2>Sources</h2></summary>
+      <div class="section-body" id="sources"></div>
+    </details>
+    <details class="report-section" open>
+      <summary><h2>Overview</h2></summary>
+      <div class="section-body" id="overview"></div>
+    </details>
+    <details class="report-section" open>
+      <summary><h2>Provider Models</h2></summary>
+      <div class="section-body" id="providerModels"></div>
+    </details>
+    <details class="report-section" open>
+      <summary><h2>Questions</h2></summary>
+      <div class="section-body grid">
+        <div id="questions"></div>
+        <aside id="detail" class="panel detail">
+          <div class="muted">Select a question row to inspect details.</div>
+        </aside>
+      </div>
+    </details>
   </main>
   <script id="report-data" type="application/json">__REPORT_DATA__</script>
   <script>
@@ -913,10 +939,47 @@ _HTML_TEMPLATE = """<!doctype html>
     function cost(q) {
       return q.cost && q.cost.total_cost_usd !== undefined ? q.cost.total_cost_usd : null;
     }
+    function providerLabel(row) {
+      return [row.provider, row.model_identifier].filter(Boolean).join("/");
+    }
     function hasMeaningfulValue(value) {
       if (value === null || value === undefined || value === "") return false;
       if (typeof value === "number") return value !== 0;
       return true;
+    }
+    function searchMatchesQuestion(q) {
+      const term = filters.search.value.trim().toLowerCase();
+      if (!term) return true;
+      return [q.name, q.question, q.solution, q.answer].some(v => text(v).toLowerCase().includes(term));
+    }
+    function correctnessMatchesQuestion(q) {
+      if (filters.correct.value === "correct") return q.correct === true;
+      if (filters.correct.value === "incorrect") return q.correct === false;
+      if (filters.correct.value === "incomplete") return q.completed !== true;
+      return true;
+    }
+    function baseMatchesQuestion(q) {
+      if (filters.source.value !== "all" && q.source_path !== filters.source.value) return false;
+      if (filters.config.value !== "all" && q.configuration !== filters.config.value) return false;
+      if (filters.model.value !== "all" && q.provider_model !== filters.model.value) return false;
+      return true;
+    }
+    function filteredQuestions() {
+      return report.questions.filter(q =>
+        baseMatchesQuestion(q) &&
+        correctnessMatchesQuestion(q) &&
+        searchMatchesQuestion(q)
+      );
+    }
+    function filterContext() {
+      const questions = filteredQuestions();
+      return {
+        questions,
+        sourceIds: new Set(questions.map(q => q.source_id)),
+        sourcePaths: new Set(questions.map(q => q.source_path)),
+        configurations: new Set(questions.map(q => `${q.source_id}||${q.configuration}`)),
+        providerModels: new Set(questions.map(q => `${q.source_id}||${q.configuration}||${q.provider_model}`)),
+      };
     }
     function renderTable(target, columns, rows, rowAttrs = () => "") {
       const visibleColumns = columns.filter(c => !c.visible || rows.some(row => c.visible(row)));
@@ -953,14 +1016,21 @@ _HTML_TEMPLATE = """<!doctype html>
       return path.split(".").reduce((value, key) => value && value[key], row);
     }
     function renderSources() {
+      const context = filterContext();
+      const rows = report.sources.filter(s => context.sourceIds.has(s.id));
       renderTable(document.getElementById("sources"), [
         { key: "path", label: "Path" },
         { key: "source_experiment", label: "Source Experiment", render: s => escapeHtml(s.metadata.source_experiment), sortValue: s => s.metadata.source_experiment },
         { key: "elapsed_seconds", label: "Elapsed Seconds", render: s => number(s.metadata.elapsed_seconds), sortValue: s => s.metadata.elapsed_seconds },
         { key: "failed_configurations", label: "Failed Configurations", render: s => escapeHtml(JSON.stringify(s.metadata.failed_configurations || {})), sortValue: s => JSON.stringify(s.metadata.failed_configurations || {}) },
-      ], report.sources);
+      ], rows);
     }
     function renderOverview() {
+      const context = filterContext();
+      const rows = report.overview.filter(r =>
+        context.configurations.has(`${r.source_id}||${r.configuration}`) &&
+        (filters.model.value === "all" || r.provider_model === filters.model.value)
+      );
       renderTable(document.getElementById("overview"), [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
@@ -972,29 +1042,22 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "output_tokens_total", label: "Output Tokens", render: r => text(r.summary.output_tokens_total), sortValue: r => r.summary.output_tokens_total },
         { key: "end_to_end_latency_avg", label: "Avg E2E Latency (s)", render: r => number(r.summary.end_to_end_latency_avg), sortValue: r => r.summary.end_to_end_latency_avg },
         { key: "cost_total_usd", label: "Cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd },
-      ], report.overview);
+      ], rows);
     }
     function renderProviderModels() {
+      const context = filterContext();
+      const rows = report.provider_models.filter(r => {
+        const label = providerLabel(r);
+        return context.providerModels.has(`${r.source_id}||${r.configuration}||${label}`) &&
+          (filters.model.value === "all" || label === filters.model.value);
+      });
       renderTable(document.getElementById("providerModels"), [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
         { key: "phase", label: "Phase" },
         { key: "provider", label: "Provider" },
         { key: "model_identifier", label: "Model Identifier" },
-      ], report.provider_models);
-    }
-    function filteredQuestions() {
-      const term = filters.search.value.trim().toLowerCase();
-      return report.questions.filter(q => {
-        if (filters.source.value !== "all" && q.source_path !== filters.source.value) return false;
-        if (filters.config.value !== "all" && q.configuration !== filters.config.value) return false;
-        if (filters.model.value !== "all" && q.provider_model !== filters.model.value) return false;
-        if (filters.correct.value === "correct" && q.correct !== true) return false;
-        if (filters.correct.value === "incorrect" && q.correct !== false) return false;
-        if (filters.correct.value === "incomplete" && q.completed === true) return false;
-        if (!term) return true;
-        return [q.name, q.question, q.solution, q.answer].some(v => text(v).toLowerCase().includes(term));
-      });
+      ], rows);
     }
     function renderQuestions() {
       const rows = filteredQuestions();

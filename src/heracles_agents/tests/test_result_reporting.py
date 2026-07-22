@@ -235,6 +235,9 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert "grid-template-columns: repeat(5, minmax(0, 1fr))" in html
     assert "grid-column: 1 / -1" in html
     assert "white-space: nowrap" in html
+    assert '<details class="report-section" open>' in html
+    assert "function filterContext()" in html
+    assert "const context = filterContext();" in html
     assert "top: 100px" not in html
     assert "setExclusiveGroupSelection" in html
     assert 'data-group="quality" checked' in html

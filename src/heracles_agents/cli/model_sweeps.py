@@ -13,7 +13,11 @@ import yaml
 def expand_model_sweeps(
     raw_experiment: dict[str, Any], source_path: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Expand top-level model_sweeps into ordinary experiment configurations."""
+    """Expand top-level model_sweeps into ordinary experiment configurations.
+
+    The returned context is for the runner only. It is intentionally not written
+    to result metadata.
+    """
 
     if not isinstance(raw_experiment, dict):
         raise ValueError("Experiment data must be a mapping.")
@@ -30,6 +34,7 @@ def expand_model_sweeps(
     if not isinstance(configurations, dict):
         raise ValueError("'configurations' must be a mapping.")
 
+    sweep_context: dict[str, Any] = {"result_configuration_names": {}}
     for sweep_name, sweep_config in raw_sweeps.items():
         if not isinstance(sweep_config, dict):
             raise ValueError(f"Model sweep '{sweep_name}' must be a mapping.")
@@ -45,6 +50,15 @@ def expand_model_sweeps(
         name_template = _required_str(
             sweep_config, "configuration_name_template", sweep_name
         )
+        result_configuration_name = sweep_config.get("result_configuration_name")
+        if result_configuration_name is not None and (
+            not isinstance(result_configuration_name, str)
+            or not result_configuration_name
+        ):
+            raise ValueError(
+                f"Model sweep '{sweep_name}' field 'result_configuration_name' "
+                "must be a non-empty string when provided."
+            )
         template = sweep_config.get("template")
         if not isinstance(template, dict):
             raise ValueError(f"Model sweep '{sweep_name}' requires a mapping template.")
@@ -71,6 +85,7 @@ def expand_model_sweeps(
                 continue
 
             configuration_name = name_template.format(alias=alias, model=model)
+            output_configuration_name = result_configuration_name or configuration_name
             if configuration_name in configurations:
                 raise ValueError(
                     f"Generated configuration '{configuration_name}' from model "
@@ -108,8 +123,11 @@ def expand_model_sweeps(
             model_info["model"] = model
 
             configurations[configuration_name] = generated_config
+            sweep_context["result_configuration_names"][
+                configuration_name
+            ] = output_configuration_name
 
-    return expanded_experiment, {}
+    return expanded_experiment, sweep_context
 
 
 def _load_models(

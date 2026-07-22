@@ -41,4 +41,4 @@ models:
 
   - alias: deepseek-v4-flash
     model: deepseek/deepseek-v4-flash
-    enabled: false
+    enabled: true
