@@ -153,18 +153,33 @@ python examples/experiment_runner.py \
   --no-display
 ```
 
-To inspect a saved result YAML later, use:
+To inspect saved result YAML files later, use the terminal summary:
 
 ```bash
 python examples/display_yaml_results.py output/openai/cypher_experiment_results.yaml
 ```
 
-Useful display options:
+The terminal view is intentionally limited to question text, solution, answer,
+and core quality/token/tool metrics so it remains readable at normal terminal
+widths.
+
+For full metric analysis and cross-run comparison, generate a self-contained
+HTML report:
 
 ```bash
-python examples/display_yaml_results.py output/openai/cypher_experiment_results.yaml --summary-only
-python examples/display_yaml_results.py output/openai/cypher_experiment_results.yaml --show-sequences
+python examples/display_yaml_results.py output/openrouter/*.yaml \
+  --mode html \
+  --output output/openrouter_report.html
+
+python examples/display_yaml_results.py \
+  output/openrouter/*.yaml \
+  output/openai_gpt-5.4-mini/*.yaml \
+  --mode html \
+  --output output/model_comparison.html
 ```
+
+The HTML report includes all recorded latency metrics, sequence details, and
+OpenRouter cost fields when those fields are present in the YAML.
 
 The prompt templates used by those configurations are under
 [examples/prompts](examples/prompts), and example question sets are under

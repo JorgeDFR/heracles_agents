@@ -6,6 +6,10 @@ from rich.console import Console
 from rich.table import Table
 
 from heracles_agents.llm_interface import AnalyzedQuestions
+from heracles_agents.cli.result_reporting import (
+    render_terminal_summary,
+    result_source_from_analyzed_questions,
+)
 
 
 def to_string(value):
@@ -120,21 +124,8 @@ def display_table(title, row_data, column_data_map={}):
 
 
 def display_experiment_results(aqs, title="Title"):
-    column_data_map = {
-        "Name": "name",
-        "Question": "question",
-    }
-    display_analyzed_question_table(title, aqs, column_data_map)
-
-    summary_column_data_map = {
-        "# Questions": "questions",
-    }
-    result_dicts = [
-        flatten_analysis_dict(q.analysis.model_dump(mode="json"))
-        for q in aqs.analyzed_questions
-    ]
-    summary_data = [summarize_results(result_dicts)[1]]
-    display_table("Summary", summary_data, column_data_map=summary_column_data_map)
+    source = result_source_from_analyzed_questions(aqs, title=title)
+    render_terminal_summary([source], console=Console())
 
 
 def display_experiment_results_with_answer(per_question_info, title="Title"):
