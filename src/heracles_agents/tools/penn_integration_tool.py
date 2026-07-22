@@ -1,9 +1,13 @@
-import numpy as np
 import zmq
+import numpy as np
+
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
+
+import logging
+logger = logging.getLogger(__name__)
 
 context = zmq.Context()
 
@@ -72,5 +76,4 @@ waypoint_tool = ToolDescription(
 )
 
 register_tool(waypoint_tool)
-print("Registered tools: ")
-print(ToolRegistry.registered_tool_summary())
+logger.debug(f"Registered tools: {ToolRegistry.registered_tool_summary()}")

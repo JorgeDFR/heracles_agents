@@ -53,7 +53,7 @@ class Prompt(BaseModel):
             if path.endswith((".yaml", ".yml")):
                 if not os.path.isfile(path):
                     raise ValueError(f"Description YAML path does not exist: {path}")
-                logger.info(f"Loading {path}")
+                logger.debug(f"Loading {path}")
                 with open(path, "r") as f:
                     data = yaml.safe_load(f)
                 loaded_data = data.get(info.field_name, None)

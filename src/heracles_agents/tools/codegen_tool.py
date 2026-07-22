@@ -1,6 +1,4 @@
-import logging
 import math
-
 import spark_dsg
 
 from heracles_agents.dsg_interfaces import PythonDsgInterface
@@ -8,6 +6,7 @@ from heracles_agents.tool_calling.tool_description import FunctionParameter, Too
 from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 from heracles_agents.tools.timeouts import FunctionTimeoutError, run_with_timeout
 
+import logging
 logger = logging.getLogger(__name__)
 
 
@@ -67,5 +66,4 @@ codegen_tool = ToolDescription(
 )
 
 register_tool(codegen_tool)
-print("Registered tools: ")
-print(ToolRegistry.registered_tool_summary())
+logger.debug(f"Registered tools: {ToolRegistry.registered_tool_summary()}")

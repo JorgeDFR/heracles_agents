@@ -35,6 +35,5 @@ def query_db(dsgdb_conf, cypher_string):
             query_result = str(db.query(cypher_string))
             return True, query_result
         except Exception as ex:
-            print(ex)
             query_result = str(ex)
             return False, query_result

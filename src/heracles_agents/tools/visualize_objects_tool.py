@@ -4,6 +4,9 @@ import time
 from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def visualize_objects(objects: str, x: str, y: str, clear: bool, viz_topic: str = None):
     if viz_topic is None:
@@ -111,5 +114,4 @@ viz_objects_tool = ToolDescription(
 )
 
 register_tool(viz_objects_tool)
-print("Registered tools:")
-print(ToolRegistry.registered_tool_summary())
+logger.debug(f"Registered tools: {ToolRegistry.registered_tool_summary()}")

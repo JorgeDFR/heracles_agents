@@ -489,7 +489,7 @@ class AgentContext:
         self.history = generate_prompt_for_agent(prompt, self.agent)
         self.initial_input_tokens = count_message_tokens(self.agent, self.history)
 
-        logger.info(f"Agent inintialized with: \n{get_summary_text(self.history)}")
+        logger.debug(f"Agent inintialized with: \n{get_summary_text(self.history)}")
 
     def call_llm(self, history):
         model_info = self.agent.model_info
@@ -620,9 +620,14 @@ class AgentContext:
         return executed_tool_calls
 
     def update_history(self, response):
-        logger.info(f"History update: \n{get_summary_text(response)}")
+        logger.debug(f"History update: \n{get_summary_text(response)}")
         update = generate_update_for_history(self.agent, response)
-        self.history += update
+        if update is None:
+            return
+        if isinstance(update, list):
+            self.history += update
+        else:
+            self.history.append(update)
 
     def check_if_done(self, history, response, last_update):
         # If any of the LLM's response messages called an answer tool, we are done
@@ -646,10 +651,9 @@ class AgentContext:
             self.history.append(response)
             return False, False
 
+        self.update_history(response)
         update = self.handle_response(response)
         logger.debug(f"Tool update: {update}")
-
-        self.update_history(response)
         self.update_history(update)
         done = self.check_if_done(self.history, response, update)
         return True, done
@@ -666,7 +670,7 @@ class AgentContext:
             answer = process_answer(self.agent, self.history[-1])
         else:
             answer = None
-        logger.info(f"Agent exiting. Finished before max iteration cap? {done}")
-        logger.info(f"Agent used {self.n_tool_calls} tool calls")
-        logger.info(f"Answer: {answer}")
+        logger.debug(f"Agent exiting. Finished before max iteration cap? {done}")
+        logger.debug(f"Agent used {self.n_tool_calls} tool calls")
+        logger.debug(f"Answer: {answer}")
         return done, answer

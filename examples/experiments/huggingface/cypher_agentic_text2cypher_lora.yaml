@@ -1,5 +1,4 @@
-metadata:
-  note: "Use a Hugging Face-compatible model server as a single tool-using Cypher QA agent."
+metadata: {}
 configurations:
 
     agentic-cypher-qa-hf-lora:

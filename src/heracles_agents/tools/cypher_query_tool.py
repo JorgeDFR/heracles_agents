@@ -4,6 +4,9 @@ from heracles_agents.dsg_interfaces import HeraclesDsgInterface
 from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def query_db(cypher_string, dsgdb_conf: HeraclesDsgInterface = None):
     if dsgdb_conf is None:
@@ -51,5 +54,4 @@ cypher_tool = ToolDescription(
 )
 
 register_tool(cypher_tool)
-print("Registered tools: ")
-print(ToolRegistry.registered_tool_summary())
+logger.debug(f"Registered tools: {ToolRegistry.registered_tool_summary()}")

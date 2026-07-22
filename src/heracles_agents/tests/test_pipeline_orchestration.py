@@ -1,7 +1,7 @@
 from collections import deque
 from types import SimpleNamespace
 
-from heracles_agents.llm_interface import EvalQuestion
+from heracles_agents.llm_interface import AgentResponse, EvalQuestion
 from heracles_agents.pipelines import (
     agentic_pipeline,
     canary_pipeline,
@@ -158,6 +158,43 @@ def test_agentic_pipeline_uses_python_api_prompt(monkeypatch):
     assert analyzed.analysis.correct
     rendered = render_openai_prompt(FakeContext.instances[0].prompt)
     assert {"role": "developer", "content": "API docs"} in rendered
+
+
+def test_agentic_pipeline_preserves_failed_context_stats_and_sequence(monkeypatch):
+    class FailingContext(FakeContext):
+        def run(self):
+            self.initial_input_tokens = 11
+            self.total_output_tokens = 7
+            self.n_tool_calls = 1
+            self.history = ["prompt", "assistant tool call"]
+            raise RuntimeError("tool failed")
+
+        def get_agent_responses(self):
+            return [
+                AgentResponse(
+                    raw_response="assistant tool call",
+                    parsed_response="assistant tool call",
+                )
+            ]
+
+    FakeContext.instances.clear()
+    monkeypatch.setattr(agentic_pipeline, "AgentContext", FailingContext)
+    exp = SimpleNamespace(
+        questions=[make_question()],
+        phases={"main": make_agent()},
+        dsg_interface=SimpleNamespace(dsg_interface_type="none"),
+    )
+
+    result = agentic_pipeline.agentic_pipeline(exp)
+
+    analyzed = result.analyzed_questions[0]
+    assert analyzed.answer is None
+    assert analyzed.completed is False
+    assert analyzed.analysis.input_tokens == 11
+    assert analyzed.analysis.output_tokens == 7
+    assert analyzed.analysis.n_tool_calls == 1
+    assert analyzed.sequences[0].description == "cypher-agent-failed-1"
+    assert analyzed.sequences[0].responses[0].parsed_response == "assistant tool call"
 
 
 def test_feedforward_cypher_pipeline_happy_path(monkeypatch):

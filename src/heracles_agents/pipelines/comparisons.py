@@ -17,8 +17,8 @@ def evaluate_answer(comparator: PddlComparison, answer, solution):
         parsed_goal = lark_parse_pddl_goal(answer)
         valid_pddl = True
     except Exception as ex:
-        print(ex)
         logger.warning("Invalid PDDL goal")
+        logger.warning(str(ex))
         valid_pddl = False
 
     if valid_pddl:
@@ -35,8 +35,8 @@ def evaluate_answer(comparator: SldpComparison, answer, solution):
         lark_parse_sldp(answer)
         valid_sldp = True
     except Exception as ex:
-        print(ex)
         logger.warning("Invalid SLDP")
+        logger.warning(str(ex))
         valid_sldp = False
 
     if valid_sldp:

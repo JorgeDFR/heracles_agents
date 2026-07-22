@@ -11,6 +11,7 @@ from time import perf_counter
 
 import yaml
 
+from heracles_agents.cli.model_sweeps import expand_model_sweeps
 from heracles_agents.cli.summarize_results import display_experiment_results
 from heracles_agents.experiment_definition import ExperimentDescription
 from heracles_agents.llm_interface import AnalyzedExperiment
@@ -81,12 +82,20 @@ def resolve_experiment_path(value: str) -> Path:
     raise FileNotFoundError(f"Experiment file not found. Checked: {checked}")
 
 
-def load_experiment(path: Path) -> ExperimentDescription:
+def load_experiment_with_context(path: Path) -> tuple[ExperimentDescription, bool]:
+    os.environ.setdefault("HERACLES_AGENTS_PATH", str(REPO_ROOT))
     with path.open("r", encoding="utf-8") as fo:
         data = yaml.safe_load(fo)
     if not isinstance(data, dict):
         raise ValueError(f"Experiment file must contain a YAML mapping: {path}")
-    return ExperimentDescription(**data)
+    has_model_sweeps = "model_sweeps" in data
+    data, _ = expand_model_sweeps(data, path)
+    return ExperimentDescription(**data), has_model_sweeps
+
+
+def load_experiment(path: Path) -> ExperimentDescription:
+    experiment, _ = load_experiment_with_context(path)
+    return experiment
 
 
 def output_path_for(experiment_path: Path, output_dir: Path) -> Path:
@@ -98,6 +107,27 @@ def output_path_for(experiment_path: Path, output_dir: Path) -> Path:
 
     experiment_name = experiment_path.stem.replace(" ", "_").lower()
     return output_dir / provider_dir / f"{experiment_name}_results.yaml"
+
+
+def output_path_for_configuration(
+    experiment_path: Path,
+    output_dir: Path,
+    configuration_name: str,
+) -> Path:
+    try:
+        relative_path = experiment_path.relative_to(EXAMPLES_DIR / "experiments")
+        provider_dir = relative_path.parent
+    except ValueError:
+        provider_dir = Path(experiment_path.parent.name)
+
+    experiment_name = experiment_path.stem.replace(" ", "_").lower()
+    safe_configuration_name = configuration_name.replace(" ", "_").lower()
+    return (
+        output_dir
+        / provider_dir
+        / experiment_name
+        / f"{safe_configuration_name}_results.yaml"
+    )
 
 
 def build_llm_metadata(
@@ -124,9 +154,9 @@ def run_experiment(
     *,
     continue_on_error: bool,
     display_results: bool,
-) -> Path:
+) -> list[Path]:
     logger.info("Running experiment: %s", experiment_path)
-    experiment = load_experiment(experiment_path)
+    experiment, has_model_sweeps = load_experiment_with_context(experiment_path)
 
     unknown_configurations = (
         selected_configurations - set(experiment.configurations)
@@ -166,24 +196,53 @@ def run_experiment(
         raise RuntimeError(f"No configurations completed for {experiment_path}")
 
     elapsed_s = perf_counter() - started_at
+    metadata = {
+        **experiment.metadata,
+        "source_experiment": str(experiment_path),
+        "elapsed_seconds": round(elapsed_s, 3),
+        "failed_configurations": failures,
+        "llm_configurations": build_llm_metadata(experiment, set(results)),
+    }
+    result_paths = []
+    if has_model_sweeps:
+        for configuration_name, analyzed_questions in results.items():
+            analyzed_experiment = AnalyzedExperiment(
+                metadata={
+                    **metadata,
+                    "llm_configurations": build_llm_metadata(
+                        experiment,
+                        {configuration_name},
+                    ),
+                },
+                experiment_configurations={configuration_name: analyzed_questions},
+            )
+            result_path = output_path_for_configuration(
+                experiment_path,
+                output_dir,
+                configuration_name,
+            )
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            with result_path.open("w", encoding="utf-8") as fo:
+                yaml.safe_dump(
+                    analyzed_experiment.model_dump(mode="json"),
+                    fo,
+                    sort_keys=False,
+                )
+            logger.info("Saved results: %s", result_path)
+            result_paths.append(result_path)
+        return result_paths
+
     analyzed_experiment = AnalyzedExperiment(
-        metadata={
-            **experiment.metadata,
-            "source_experiment": str(experiment_path),
-            "elapsed_seconds": round(elapsed_s, 3),
-            "failed_configurations": failures,
-            "llm_configurations": build_llm_metadata(experiment, set(results)),
-        },
+        metadata=metadata,
         experiment_configurations=results,
     )
-
     result_path = output_path_for(experiment_path, output_dir)
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with result_path.open("w", encoding="utf-8") as fo:
         yaml.safe_dump(analyzed_experiment.model_dump(mode="json"), fo, sort_keys=False)
 
     logger.info("Saved results: %s", result_path)
-    return result_path
+    return [result_path]
 
 
 def main() -> int:
@@ -200,7 +259,7 @@ def main() -> int:
     for experiment_arg in args.experiments:
         try:
             experiment_path = resolve_experiment_path(experiment_arg)
-            result_paths.append(
+            result_paths.extend(
                 run_experiment(
                     experiment_path,
                     args.output_dir.expanduser().resolve(),
@@ -215,7 +274,7 @@ def main() -> int:
                 return 1
 
     if result_paths:
-        logger.info("Completed %d experiment file(s).", len(result_paths))
+        logger.info("Wrote %d result file(s).", len(result_paths))
     return 0
 
 

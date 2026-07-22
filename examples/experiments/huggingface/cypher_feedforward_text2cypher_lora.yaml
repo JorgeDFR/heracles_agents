@@ -1,5 +1,4 @@
-metadata:
-  note: "Use a Hugging Face-compatible model server for the Cypher generation phase."
+metadata: {}
 configurations:
 
     feedforward-cypher-qa-hf-lora:

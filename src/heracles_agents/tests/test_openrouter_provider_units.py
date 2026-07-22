@@ -101,6 +101,7 @@ def test_openrouter_iteration_and_text_body():
 
     agent = make_openrouter_agent()
     assert list(openrouter_agent.iterate_messages(agent, response)) == [tool_call, message]
+    assert openrouter_agent.generate_update_for_history(agent, response) == [message]
     assert openrouter_agent.get_text_body(response) == "hello"
     assert openrouter_agent.get_text_body(message) == "hello"
     assert openrouter_agent.get_text_body(empty_message) == ""

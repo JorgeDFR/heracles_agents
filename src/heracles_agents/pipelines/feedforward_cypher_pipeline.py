@@ -43,7 +43,6 @@ def generate_prompt(
         )
     except KeyError as ex:
         logger.error("Novel instruction template has unfilled parameter!")
-        print(ex)
         raise ex
 
     prompt.answer_semantic_guidance = "Make your answer as concise as possible."
@@ -66,16 +65,16 @@ def feedforward_cypher(exp):
         sequences = []
         completed = False
         try:
-            logger.info(f"\n=======================\nQuestion: {question.question}\n")
+            logger.debug(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["generate-cypher"])
             contexts.append(cxt)
 
             prompt = generate_prompt(question, exp.phases["generate-cypher"])
-            #logger.info(f"\nLLM Prompt (Generate Cypher): {prompt}\n")
+            #logger.debug(f"\nLLM Prompt (Generate Cypher): {prompt}\n")
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()
-            logger.info(f"\nLLM Intermediate Answer: {answer}\n")
+            logger.debug(f"\nLLM Intermediate Answer: {answer}\n")
 
             cypher_generation_sequence = AgentSequence(
                 description="cypher-producing-agent",
@@ -96,11 +95,11 @@ def feedforward_cypher(exp):
                 exp.phases["refine"],
                 {"cypher_results": query_result, "cypher_query": answer},
             )
-            #logger.info(f"\nLLM Prompt (Refine): {refinement_prompt}\n")
+            #logger.debug(f"\nLLM Prompt (Refine): {refinement_prompt}\n")
 
             cxt2.initialize_agent(refinement_prompt)
             success, answer = cxt2.run()
-            logger.info(f"LLM Final Answer: {answer}")
+            logger.debug(f"LLM Final Answer: {answer}")
 
             validation_started = perf_counter()
             try:
@@ -110,7 +109,7 @@ def feedforward_cypher(exp):
             finally:
                 parsing_validation_seconds += perf_counter() - validation_started
 
-            logger.info(f"\n\nCorrect? {correct}\n\n")
+            logger.debug(f"\n\nCorrect? {correct}\n\n")
 
             refinement_sequence = AgentSequence(
                 description="refinement-agent", responses=cxt2.get_agent_responses()
@@ -138,7 +137,6 @@ def feedforward_cypher(exp):
             completed = True
 
         except Exception as ex:
-            print(ex)
             logger.error("Bad Question!")
             logger.error(str(ex))
             analysis = QuestionAnalysis(

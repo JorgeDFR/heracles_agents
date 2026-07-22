@@ -1,6 +1,9 @@
 from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def the_mighty_favog(query: str, category) -> int:
     match category:
@@ -29,5 +32,4 @@ favog_tool = ToolDescription(
 )
 
 register_tool(favog_tool)
-print("Registered tools: ")
-print(ToolRegistry.registered_tool_summary())
+logger.debug(f"Registered tools: {ToolRegistry.registered_tool_summary()}")

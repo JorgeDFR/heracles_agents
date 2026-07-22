@@ -4,6 +4,9 @@ import os
 from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 from heracles_agents.tool_calling.registry import ToolRegistry, register_tool
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def send_pddl(pddl_goal_string, robot_name: str = None, planner_topic: str = None):
     if robot_name is None or planner_topic is None:
@@ -27,8 +30,7 @@ pddl_tool = ToolDescription(
 )
 
 register_tool(pddl_tool)
-print("Registered tools: ")
-print(ToolRegistry.registered_tool_summary())
+logger.debug(f"Registered tools: {ToolRegistry.registered_tool_summary()}")
 
 
 def send_multirobot_pddl(robot_name_to_pddl_goal, planner_topic: str = None):
@@ -60,5 +62,4 @@ mr_pddl_tool = ToolDescription(
 )
 
 register_tool(mr_pddl_tool)
-print("Registered tools: ")
-print(ToolRegistry.registered_tool_summary())
+logger.debug(f"Registered tools: {ToolRegistry.registered_tool_summary()}")

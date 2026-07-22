@@ -42,7 +42,6 @@ def generate_prompt(
         )
     except KeyError as ex:
         logger.error("Novel instruction template has unfilled parameter!")
-        print(ex)
         raise ex
 
     prompt.answer_semantic_guidance = "Make your answer as concise as possible."
@@ -64,16 +63,16 @@ def canary_pipeline(exp):
         sequences = []
         completed = False
         try:
-            logger.info(f"\n=======================\nQuestion: {question.question}\n")
+            logger.debug(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["main"])
             contexts.append(cxt)
 
             prompt = generate_prompt(question, exp.phases["main"])
-            #logger.info(f"\nLLM Prompt: {prompt}\n")
+            #logger.debug(f"\nLLM Prompt: {prompt}\n")
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()
-            logger.info(f"\nLLM Answer: {answer}\n")
+            logger.debug(f"\nLLM Answer: {answer}\n")
 
             validation_started = perf_counter()
             try:
@@ -82,7 +81,7 @@ def canary_pipeline(exp):
                 )
             finally:
                 parsing_validation_seconds += perf_counter() - validation_started
-            logger.info(f"\n\nCorrect? {correct}\n\n")
+            logger.debug(f"\n\nCorrect? {correct}\n\n")
 
             agent_sequence = AgentSequence(
                 description="canary-agent", responses=cxt.get_agent_responses()
@@ -105,7 +104,6 @@ def canary_pipeline(exp):
             completed = True
 
         except Exception as ex:
-            print(ex)
             logger.error("Bad Question!")
             logger.error(str(ex))
             analysis = QuestionAnalysis(

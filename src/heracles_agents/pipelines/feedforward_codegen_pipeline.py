@@ -52,7 +52,6 @@ def generate_prompt(
         )
     except KeyError as ex:
         logger.error("Novel instruction template has unfilled parameter!")
-        print(ex)
         raise ex
 
     prompt.answer_semantic_guidance = "Make your answer as concise as possible."
@@ -84,7 +83,7 @@ def feedforward_codegen(exp):
         sequences = []
         completed = False
         try:
-            logger.info(f"\n=======================\nQuestion: {question.question}\n")
+            logger.debug(f"\n=======================\nQuestion: {question.question}\n")
             question_scene_graph = (
                 copy.deepcopy(scene_graph) if copy_dsg_per_question else scene_graph
             )
@@ -99,7 +98,7 @@ def feedforward_codegen(exp):
             success, answer = cxt.run()
             if not success:
                 raise RuntimeError("Code generation agent failed before producing code")
-            logger.info(f"\nLLM Intermediate Answer: {answer}\n")
+            logger.debug(f"\nLLM Intermediate Answer: {answer}\n")
 
             codgen_sequence = AgentSequence(
                 description="codegen-agent", responses=cxt.get_agent_responses()
@@ -120,7 +119,7 @@ def feedforward_codegen(exp):
             success, answer = cxt2.run()
             if not success:
                 raise RuntimeError("Refinement agent failed before producing an answer")
-            logger.info(f"LLM Final Answer: {answer}")
+            logger.debug(f"LLM Final Answer: {answer}")
 
             validation_started = perf_counter()
             try:
@@ -130,7 +129,7 @@ def feedforward_codegen(exp):
             finally:
                 parsing_validation_seconds += perf_counter() - validation_started
 
-            logger.info(f"\n\nCorrect? {correct}\n\n")
+            logger.debug(f"\n\nCorrect? {correct}\n\n")
 
             refinement_sequence = AgentSequence(
                 description="refinement-agent", responses=cxt2.get_agent_responses()
@@ -155,7 +154,6 @@ def feedforward_codegen(exp):
             )
             completed = True
         except Exception as ex:
-            print(ex)
             logger.error("Bad Question!")
             logger.error(str(ex))
             analysis = QuestionAnalysis(

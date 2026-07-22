@@ -153,6 +153,29 @@ python examples/experiment_runner.py \
   --no-display
 ```
 
+OpenRouter model sweeps can be configured with a reusable model list. The
+provided research sweep uses
+[examples/experiments/openrouter/model_lists/research_11.yaml](examples/experiments/openrouter/model_lists/research_11.yaml);
+future model changes should usually only require editing that file.
+
+```bash
+# Test one model from the Cypher sweep
+python examples/experiment_runner.py \
+  examples/experiments/openrouter/cypher_model_sweep.yaml \
+  --configuration agentic-cypher-qa-deepseek-v4-flash \
+  --output-dir output/openrouter_model_sweep
+
+# Run the full Cypher and PDDL OpenRouter model sweeps
+python examples/experiment_runner.py \
+  examples/experiments/openrouter/cypher_model_sweep.yaml \
+  examples/experiments/openrouter/pddl_model_sweep.yaml \
+  --output-dir output/openrouter_model_sweep \
+  --no-display
+```
+
+Model sweep runs write one result YAML per generated model configuration under
+`output/<output-dir>/openrouter/<experiment-name>/`.
+
 To inspect saved result YAML files later, use the terminal summary:
 
 ```bash
@@ -176,6 +199,12 @@ python examples/display_yaml_results.py \
   output/openai_gpt-5.4-mini/*.yaml \
   --mode html \
   --output output/model_comparison.html
+
+python examples/display_yaml_results.py \
+  output/openrouter_model_sweep/openrouter/cypher_model_sweep/*_results.yaml \
+  output/openrouter_model_sweep/openrouter/pddl_model_sweep/*_results.yaml \
+  --mode html \
+  --output output/openrouter_model_sweep/report.html
 ```
 
 The HTML report includes all recorded latency metrics, sequence details, and

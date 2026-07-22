@@ -106,7 +106,7 @@ def generate_update_for_history(
     agent: LlmAgent[OpenRouterClientConfig],
     response: ChatResult
 ) -> list:
-    return response.choices[0].message
+    return [response.choices[0].message]
 
 
 @dispatch

@@ -45,7 +45,6 @@ def generate_prompt(
         )
     except KeyError as ex:
         logger.error("Novel instruction template has unfilled parameter!")
-        print(ex)
         raise ex
 
     prompt.answer_semantic_guidance = "Make your answer as concise as possible."
@@ -70,18 +69,18 @@ def agentic_pipeline(exp):
         sequences = []
         completed = False
         try:
-            logger.info(f"\n=======================\nQuestion: {question.question}\n")
+            logger.debug(f"\n=======================\nQuestion: {question.question}\n")
             cxt = AgentContext(exp.phases["main"])
             contexts.append(cxt)
 
             prompt = generate_prompt(
                 question, exp.phases["main"], api_prompt=api_string
             )
-            #logger.info(f"\nLLM Prompt: {prompt}\n")
+            #logger.debug(f"\nLLM Prompt: {prompt}\n")
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()
-            logger.info(f"\nLLM Answer: {answer}\n")
+            logger.debug(f"\nLLM Answer: {answer}\n")
 
             validation_started = perf_counter()
             try:
@@ -90,7 +89,7 @@ def agentic_pipeline(exp):
                 )
             finally:
                 parsing_validation_seconds += perf_counter() - validation_started
-            logger.info(f"\n\nCorrect? {correct}\n\n")
+            logger.debug(f"\n\nCorrect? {correct}\n\n")
 
             agent_sequence = AgentSequence(
                 description="cypher-agent", responses=cxt.get_agent_responses()
@@ -113,15 +112,30 @@ def agentic_pipeline(exp):
             completed = True
 
         except Exception as ex:
-            print(ex)
             logger.error("Bad Question!")
             logger.error(str(ex))
+            for idx, context in enumerate(contexts):
+                if not context.history:
+                    continue
+                sequences.append(
+                    AgentSequence(
+                        description=f"cypher-agent-failed-{idx + 1}",
+                        responses=context.get_agent_responses(),
+                    )
+                )
             analysis = QuestionAnalysis(
                 correct=False,
                 valid_answer_format=False,
-                input_tokens=0,
-                output_tokens=0,
-                n_tool_calls=0,
+                input_tokens=sum(
+                    getattr(context, "initial_input_tokens", 0)
+                    for context in contexts
+                ),
+                output_tokens=sum(
+                    getattr(context, "total_output_tokens", 0) for context in contexts
+                ),
+                n_tool_calls=sum(
+                    getattr(context, "n_tool_calls", 0) for context in contexts
+                ),
                 latency=make_latency_metrics(
                     contexts,
                     end_to_end_seconds=perf_counter() - question_started,

@@ -43,7 +43,6 @@ def generate_prompt(
         )
     except KeyError as ex:
         logger.error("Novel instruction template has unfilled parameter!")
-        print(ex)
         raise ex
 
     prompt.answer_semantic_guidance = "Make your answer as concise as possible."
@@ -51,8 +50,6 @@ def generate_prompt(
         agent_config, question
     )
 
-    print("prompt: ")
-    print(prompt)
     return prompt
 
 
@@ -73,7 +70,7 @@ def incontext_dsg(exp):
 
             cxt.initialize_agent(prompt)
             success, answer = cxt.run()
-            logger.info(f"\nLLM Final Answer: {answer}\n")
+            logger.debug(f"\nLLM Final Answer: {answer}\n")
 
             sequence = AgentSequence(
                 description="in-context pipeline", responses=cxt.get_agent_responses()
@@ -88,7 +85,7 @@ def incontext_dsg(exp):
             finally:
                 parsing_validation_seconds += perf_counter() - validation_started
 
-            logger.info(f"\n\nCorrect? {correct}\n\n")
+            logger.debug(f"\n\nCorrect? {correct}\n\n")
 
             analysis = QuestionAnalysis(
                 correct=correct,
@@ -106,7 +103,6 @@ def incontext_dsg(exp):
             completed = True
 
         except Exception as ex:
-            print(ex)
             logger.error("Bad Question!")
             logger.error(str(ex))
             analysis = QuestionAnalysis(
