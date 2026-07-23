@@ -286,7 +286,13 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert 'label: "End-to-End Latency (s)"' not in html
     assert "function seconds(value)" in html
     assert "function percent(value)" in html
+    assert "function compareSortValues" in html
+    assert "function rowMatchesColumns" in html
+    assert "function groupMatchesOverview" in html
+    assert "function hasOverviewCost" in html
+    assert "function hasOverviewLocalResources" in html
     assert "hasMeaningfulValue" in html
+    assert 'placeholder="Table values"' in html
     assert "Cost USD" in html
     assert "Local Resources" in html
     assert 'label: "CPU Avg"' in html

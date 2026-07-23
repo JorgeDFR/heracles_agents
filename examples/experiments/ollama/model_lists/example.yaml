@@ -1,8 +1,8 @@
 models:
-  - alias: gemma4:12b
+  - alias: gemma-4-12b
     model: gemma4:12b
     enabled: true
 
-  - alias: gemma4:26b
+  - alias: gemma-4-26b
     model: gemma4:26b
     enabled: true

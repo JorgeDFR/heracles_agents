@@ -1079,9 +1079,12 @@ _HTML_TEMPLATE = """<!doctype html>
         <option value="all">All</option>
         <option value="correct">Correct</option>
         <option value="incorrect">Incorrect</option>
+        <option value="valid">Valid</option>
+        <option value="invalid">Invalid</option>
+        <option value="complete">Complete</option>
         <option value="incomplete">Incomplete</option>
       </select></label>
-      <label class="search-control">Search <input id="searchInput" type="search" placeholder="Question, solution, answer"></label>
+      <label class="search-control">Search <input id="searchInput" type="search" placeholder="Table values"></label>
       <div class="toggles">
         <label><input type="checkbox" data-group="quality" checked> Quality</label>
         <label><input type="checkbox" data-group="tokens"> Tokens/tools</label>
@@ -1216,14 +1219,51 @@ _HTML_TEMPLATE = """<!doctype html>
     function hasValue(accessor) {
       return row => hasMeaningfulValue(accessor(row));
     }
-    function searchMatchesQuestion(q) {
+    function activeMetricGroup() {
+      const active = groupInputs.find(input => input.checked);
+      return active ? active.dataset.group : null;
+    }
+    function columnMatchesActiveGroup(column) {
+      return !column.group || column.group === activeMetricGroup();
+    }
+    function stripMarkup(value) {
+      return text(value).replace(/<[^>]*>/g, " ");
+    }
+    function rowMatchesColumns(row, columns) {
       const term = filters.search.value.trim().toLowerCase();
       if (!term) return true;
-      return [q.name, q.question, q.solution, q.answer].some(v => text(v).toLowerCase().includes(term));
+      return columns.some(column => {
+        if (!columnMatchesActiveGroup(column)) return false;
+        if (column.visible && !column.visible(row)) return false;
+        const value = column.searchValue
+          ? column.searchValue(row)
+          : column.render
+          ? stripMarkup(column.render(row))
+          : valueByPath(row, column.key);
+        return text(value).toLowerCase().includes(term);
+      });
+    }
+    function hasOverviewCost(row) {
+      return hasMeaningfulValue(row.summary && row.summary.cost_total_usd) ||
+        hasMeaningfulValue(row.summary && row.summary.cost_per_question_usd) ||
+        hasMeaningfulValue(row.summary && row.summary.cost_per_correct_answer_usd) ||
+        hasMeaningfulValue(row.cost_summary && row.cost_summary.total_cost_usd);
+    }
+    function hasOverviewLocalResources(row) {
+      return Object.values(row.local_resources_summary || {}).some(hasMeaningfulValue);
+    }
+    function groupMatchesOverview(row) {
+      const group = activeMetricGroup();
+      if (group === "cost") return hasOverviewCost(row);
+      if (group === "local_resources") return hasOverviewLocalResources(row);
+      return true;
     }
     function correctnessMatchesQuestion(q) {
       if (filters.correct.value === "correct") return q.correct === true;
       if (filters.correct.value === "incorrect") return q.correct === false;
+      if (filters.correct.value === "valid") return q.valid_answer_format !== false;
+      if (filters.correct.value === "invalid") return q.valid_answer_format !== true;
+      if (filters.correct.value === "complete") return q.completed !== false;
       if (filters.correct.value === "incomplete") return q.completed !== true;
       return true;
     }
@@ -1233,15 +1273,14 @@ _HTML_TEMPLATE = """<!doctype html>
       if (filters.model.value !== "all" && q.provider_model !== filters.model.value) return false;
       return true;
     }
-    function filteredQuestions() {
+    function filteredQuestionsForContext() {
       return report.questions.filter(q =>
         baseMatchesQuestion(q) &&
-        correctnessMatchesQuestion(q) &&
-        searchMatchesQuestion(q)
+        correctnessMatchesQuestion(q)
       );
     }
     function filterContext() {
-      const questions = filteredQuestions();
+      const questions = filteredQuestionsForContext();
       return {
         questions,
         sourceIds: new Set(questions.map(q => q.source_id)),
@@ -1278,29 +1317,45 @@ _HTML_TEMPLATE = """<!doctype html>
       return [...rows].sort((a, b) => {
         const av = column.sortValue ? column.sortValue(a) : valueByPath(a, column.key);
         const bv = column.sortValue ? column.sortValue(b) : valueByPath(b, column.key);
-        return String(av ?? "").localeCompare(String(bv ?? ""), undefined, { numeric: true }) * state.sortDir;
+        return compareSortValues(av, bv);
       });
     }
+    function compareSortValues(av, bv) {
+      const aMissing = av === null || av === undefined || av === "";
+      const bMissing = bv === null || bv === undefined || bv === "";
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      const an = Number(av);
+      const bn = Number(bv);
+      if (Number.isFinite(an) && Number.isFinite(bn)) {
+        return (an - bn) * state.sortDir;
+      }
+      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * state.sortDir;
+    }
     function valueByPath(row, path) {
-      return path.split(".").reduce((value, key) => value && value[key], row);
+      return path.split(".").reduce((value, key) => {
+        if (value === null || value === undefined) return undefined;
+        return value[key];
+      }, row);
     }
     function renderSources() {
       const context = filterContext();
-      const rows = report.sources.filter(s => context.sourceIds.has(s.id));
-      renderTable(document.getElementById("sources"), [
+      const columns = [
         { key: "path", label: "Path" },
         { key: "source_experiment", label: "Source Experiment", render: s => escapeHtml(s.metadata.source_experiment), sortValue: s => s.metadata.source_experiment },
         { key: "elapsed_seconds", label: "Elapsed Seconds", render: s => number(s.metadata.elapsed_seconds), sortValue: s => s.metadata.elapsed_seconds },
         { key: "failed_configurations", label: "Failed Configurations", render: s => escapeHtml(JSON.stringify(s.metadata.failed_configurations || {})), sortValue: s => JSON.stringify(s.metadata.failed_configurations || {}) },
-      ], rows);
+      ];
+      const rows = report.sources.filter(s =>
+        context.sourceIds.has(s.id) &&
+        rowMatchesColumns(s, columns)
+      );
+      renderTable(document.getElementById("sources"), columns, rows);
     }
     function renderOverview() {
       const context = filterContext();
-      const rows = report.overview.filter(r =>
-        context.configurations.has(`${r.source_id}||${r.configuration}`) &&
-        (filters.model.value === "all" || r.provider_model === filters.model.value)
-      );
-      renderTable(document.getElementById("overview"), [
+      const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
         { key: "provider_model", label: "Provider / Model" },
@@ -1322,33 +1377,41 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "local_resources_summary.gpu_energy_wh", label: "GPU Energy", group: "local_resources", render: r => wattHours(localSummary(r, "gpu_energy_wh")), sortValue: r => localSummary(r, "gpu_energy_wh"), visible: hasValue(r => localSummary(r, "gpu_energy_wh")) },
         { key: "local_resources_summary.throughput_tokens_per_second", label: "Throughput", group: "local_resources", render: r => tokensPerSecond(localSummary(r, "throughput_tokens_per_second")), sortValue: r => localSummary(r, "throughput_tokens_per_second"), visible: hasValue(r => localSummary(r, "throughput_tokens_per_second")) },
         { key: "local_resources_summary.load_time_seconds", label: "Load Time", group: "local_resources", render: r => seconds(localSummary(r, "load_time_seconds")), sortValue: r => localSummary(r, "load_time_seconds"), visible: hasValue(r => localSummary(r, "load_time_seconds")) },
-      ], rows);
+      ];
+      const rows = report.overview.filter(r =>
+        context.configurations.has(`${r.source_id}||${r.configuration}`) &&
+        (filters.model.value === "all" || r.provider_model === filters.model.value) &&
+        groupMatchesOverview(r) &&
+        rowMatchesColumns(r, columns)
+      );
+      renderTable(document.getElementById("overview"), columns, rows);
     }
     function renderProviderModels() {
       const context = filterContext();
-      const rows = report.provider_models.filter(r => {
-        const label = providerLabel(r);
-        return context.providerModels.has(`${r.source_id}||${r.configuration}||${label}`) &&
-          (filters.model.value === "all" || label === filters.model.value);
-      });
-      renderTable(document.getElementById("providerModels"), [
+      const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
         { key: "phase", label: "Phase" },
         { key: "provider", label: "Provider" },
         { key: "model_identifier", label: "Model Identifier" },
-      ], rows);
+      ];
+      const rows = report.provider_models.filter(r => {
+        const label = providerLabel(r);
+        return context.providerModels.has(`${r.source_id}||${r.configuration}||${label}`) &&
+          (filters.model.value === "all" || label === filters.model.value) &&
+          rowMatchesColumns(r, columns);
+      });
+      renderTable(document.getElementById("providerModels"), columns, rows);
     }
     function renderQuestions() {
-      const rows = filteredQuestions();
       const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
         { key: "provider_model", label: "Provider / Model" },
         { key: "name", label: "Topic" },
-        { key: "completed", label: "Completed", group: "quality", render: q => bool(q.completed) },
         { key: "correct", label: "Correct", group: "quality", render: q => bool(q.correct) },
         { key: "valid_answer_format", label: "Valid Answer", group: "quality", render: q => bool(q.valid_answer_format) },
+        { key: "completed", label: "Completed", group: "quality", render: q => bool(q.completed) },
         { key: "input_tokens", label: "Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens) },
         { key: "output_tokens", label: "Output Tokens", group: "tokens", visible: hasValue(q => q.output_tokens) },
         { key: "n_tool_calls", label: "Tool Calls", group: "tokens", visible: hasValue(q => q.n_tool_calls) },
@@ -1361,6 +1424,7 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "latency.time_to_first_token_seconds", label: "Time to First Token", group: "latency", render: q => seconds(metric(q, "time_to_first_token_seconds")), visible: hasValue(q => metric(q, "time_to_first_token_seconds")) },
         { key: "cost", label: "Cost USD", group: "cost", render: q => money(cost(q)), sortValue: q => cost(q), visible: hasValue(q => cost(q)) },
       ];
+      const rows = filteredQuestionsForContext().filter(q => rowMatchesColumns(q, columns));
       renderTable(
         document.getElementById("questions"),
         columns,
@@ -1399,9 +1463,9 @@ _HTML_TEMPLATE = """<!doctype html>
           <dt>Source</dt><dd>${escapeHtml(q.source_path)}</dd>
           <dt>Configuration</dt><dd>${escapeHtml(q.configuration)}</dd>
           <dt>Provider / Model</dt><dd>${escapeHtml(q.provider_model)}</dd>
-          <dt>Completed</dt><dd>${bool(q.completed)}</dd>
           <dt>Correct</dt><dd>${bool(q.correct)}</dd>
           <dt>Valid Answer</dt><dd>${bool(q.valid_answer_format)}</dd>
+          <dt>Completed</dt><dd>${bool(q.completed)}</dd>
           <dt>Input Tokens</dt><dd>${escapeHtml(q.input_tokens)}</dd>
           <dt>Output Tokens</dt><dd>${escapeHtml(q.output_tokens)}</dd>
           <dt>Tool Calls</dt><dd>${escapeHtml(q.n_tool_calls)}</dd>
@@ -1443,7 +1507,7 @@ _HTML_TEMPLATE = """<!doctype html>
     Object.values(filters).forEach(el => el.addEventListener("input", render));
     groupInputs.forEach(el => el.addEventListener("change", () => {
       setExclusiveGroupSelection(el);
-      applyGroupVisibility();
+      render();
     }));
     render();
   </script>

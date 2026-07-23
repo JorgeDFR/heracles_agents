@@ -297,15 +297,15 @@ def test_real_ollama_sweep_files_expand_to_enabled_valid_configurations():
     experiments = [experiment for experiment, _context in loaded]
     contexts = [context for _experiment, context in loaded]
     assert contexts[0]["result_configuration_names"][
-        "agentic-cypher-qa-gemma4:12b"
+        "agentic-cypher-qa-gemma-4-12b"
     ] == "agentic-cypher-qa"
     assert contexts[1]["result_configuration_names"][
-        "agentic-cypher-pddl-gemma4:12b"
+        "agentic-cypher-pddl-gemma-4-12b"
     ] == "agentic-cypher-pddl"
 
     assert (
         experiments[0]
-        .configurations["agentic-cypher-qa-gemma4:12b"]
+        .configurations["agentic-cypher-qa-gemma-4-12b"]
         .phases["main"]
         .client
         .client_type
@@ -313,7 +313,7 @@ def test_real_ollama_sweep_files_expand_to_enabled_valid_configurations():
     )
     assert (
         experiments[1]
-        .configurations["agentic-cypher-pddl-gemma4:26b"]
+        .configurations["agentic-cypher-pddl-gemma-4-26b"]
         .phases["main"]
         .model_info
         .model
