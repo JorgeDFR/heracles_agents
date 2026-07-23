@@ -1,7 +1,7 @@
 # ruff: noqa: F811
 import logging
 import time
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Sequence, Union
 
 from plum import dispatch
 from pydantic import BaseModel, Field, model_validator
@@ -32,6 +32,9 @@ from heracles_agents.llm_agent import LlmAgent
 from heracles_agents.normalized_response import (
     NormalizedMessage,
     normalized_summary,
+)
+from heracles_agents.local_metrics.ollama_runtime import (
+    extract_ollama_response_metrics,
 )
 from heracles_agents.tool_calling.rendering import has_tool_renderer, render_tool_for_interface
 
@@ -126,6 +129,37 @@ class CostSummary(BaseModel):
     cost_basis: str
 
 
+class ConfigurationAnalysisSummary(BaseModel):
+    questions: int = 0
+    completed_count: int = 0
+    completed_rate: Optional[float] = None
+    valid_answer_count: int = 0
+    valid_answer_rate: Optional[float] = None
+    correct_count: int = 0
+    accuracy: Optional[float] = None
+    input_tokens_total: int = 0
+    input_tokens_avg: Optional[float] = None
+    output_tokens_total: int = 0
+    output_tokens_avg: Optional[float] = None
+    tool_calls_total: int = 0
+    tool_calls_avg: Optional[float] = None
+    latency: dict = Field(default_factory=dict)
+
+
+class LocalResourceMetrics(BaseModel):
+    measurement_scope: str = "ollama_container"
+    ollama_container_name: Optional[str] = None
+    sample_interval_seconds: Optional[float] = None
+    baseline_seconds: Optional[float] = None
+    baseline_adjusted: bool = True
+    telemetry: dict = Field(default_factory=dict)
+    cpu: dict = Field(default_factory=dict)
+    ram: dict = Field(default_factory=dict)
+    gpu: dict = Field(default_factory=dict)
+    ollama: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class QuestionAnalysis(BaseModel):
     # Information that is relevant about evaluating the response quality of the
     # "whole question"
@@ -139,6 +173,9 @@ class QuestionAnalysis(BaseModel):
     cost: Optional[CostMetrics] = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    local_resources: Optional[LocalResourceMetrics] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class AnalyzedQuestion(BaseModel):
@@ -150,13 +187,23 @@ class AnalyzedQuestion(BaseModel):
 
 
 class AnalyzedQuestions(BaseModel):
-    analyzed_questions: list[AnalyzedQuestion]
+    analysis_summary: Optional[ConfigurationAnalysisSummary] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     cost_summary: Optional[CostSummary] = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    local_resources: Optional[LocalResourceMetrics] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    analyzed_questions: list[AnalyzedQuestion]
 
     @model_validator(mode="after")
-    def populate_cost_summary(self):
+    def populate_configuration_summaries(self):
+        if self.analysis_summary is None:
+            self.analysis_summary = make_configuration_analysis_summary(
+                self.analyzed_questions
+            )
         if self.cost_summary is None:
             self.cost_summary = make_cost_summary(self.analyzed_questions)
         return self
@@ -276,6 +323,126 @@ def make_cost_summary(analyzed_questions: list["AnalyzedQuestion"]):
         else None,
         cost_basis="provider_reported",
     )
+
+
+def make_configuration_analysis_summary(
+    analyzed_questions: Sequence["AnalyzedQuestion"],
+) -> ConfigurationAnalysisSummary:
+    n_questions = len(analyzed_questions)
+    completed_count = sum(1 for q in analyzed_questions if q.completed is True)
+    valid_answer_count = sum(
+        1
+        for q in analyzed_questions
+        if getattr(getattr(q, "analysis", None), "valid_answer_format", False)
+        is True
+    )
+    correct_count = sum(
+        1
+        for q in analyzed_questions
+        if getattr(getattr(q, "analysis", None), "correct", False) is True
+    )
+    input_tokens = [
+        _number_or_zero(getattr(getattr(q, "analysis", None), "input_tokens", 0))
+        for q in analyzed_questions
+    ]
+    output_tokens = [
+        _number_or_zero(getattr(getattr(q, "analysis", None), "output_tokens", 0))
+        for q in analyzed_questions
+    ]
+    tool_calls = [
+        _number_or_zero(getattr(getattr(q, "analysis", None), "n_tool_calls", 0))
+        for q in analyzed_questions
+    ]
+
+    return ConfigurationAnalysisSummary(
+        questions=n_questions,
+        completed_count=completed_count,
+        completed_rate=_rate(completed_count, n_questions),
+        valid_answer_count=valid_answer_count,
+        valid_answer_rate=_rate(valid_answer_count, n_questions),
+        correct_count=correct_count,
+        accuracy=_rate(correct_count, n_questions),
+        input_tokens_total=sum(input_tokens),
+        input_tokens_avg=_avg(input_tokens),
+        output_tokens_total=sum(output_tokens),
+        output_tokens_avg=_avg(output_tokens),
+        tool_calls_total=sum(tool_calls),
+        tool_calls_avg=_avg(tool_calls),
+        latency={
+            "end_to_end_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "end_to_end_seconds")
+            ),
+            "end_to_end_seconds_avg": _avg(
+                _latency_values(analyzed_questions, "end_to_end_seconds")
+            ),
+            "end_to_end_seconds_p50": _percentile(
+                _latency_values(analyzed_questions, "end_to_end_seconds"), 0.50
+            ),
+            "end_to_end_seconds_p95": _percentile(
+                _latency_values(analyzed_questions, "end_to_end_seconds"), 0.95
+            ),
+            "llm_call_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "llm_call_seconds")
+            ),
+            "llm_call_seconds_avg": _avg(
+                _latency_values(analyzed_questions, "llm_call_seconds")
+            ),
+            "tool_execution_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "tool_execution_seconds")
+            ),
+            "neo4j_query_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "neo4j_query_seconds")
+            ),
+            "parsing_validation_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "parsing_validation_seconds")
+            ),
+            "retry_wait_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "retry_wait_seconds")
+            ),
+        },
+    )
+
+
+def _latency_values(
+    analyzed_questions: Sequence["AnalyzedQuestion"], field_name: str
+) -> list[float]:
+    values = []
+    for analyzed_question in analyzed_questions:
+        latency = getattr(getattr(analyzed_question, "analysis", None), "latency", None)
+        value = getattr(latency, field_name, None)
+        if value is not None:
+            values.append(float(value))
+    return values
+
+
+def _number_or_zero(value) -> int:
+    if value is None:
+        return 0
+    return int(value)
+
+
+def _rate(count: int, total: int) -> float | None:
+    return round(count / total, 6) if total else None
+
+
+def _avg(values: Sequence[int | float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 6)
+
+
+def _sum_or_none(values: Sequence[int | float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values), 6)
+
+
+def _percentile(values: Sequence[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * percentile)))
+    return round(ordered[index], 6)
 
 
 def _populate_openrouter_cost(context, call: LlmCallCost) -> LlmCallCost:
@@ -484,6 +651,7 @@ class AgentContext:
         self.retry_wait_seconds = 0.0
         self.time_to_first_token_seconds = None
         self.llm_call_costs = []
+        self.local_llm_runtime_metrics = []
 
     def initialize_agent(self, prompt):
         self.history = generate_prompt_for_agent(prompt, self.agent)
@@ -521,6 +689,7 @@ class AgentContext:
                 )
                 self.llm_call_seconds += time.perf_counter() - llm_call_started
                 self.record_llm_call_cost(response, input_tokens)
+                self.record_local_llm_runtime_metrics(response)
                 return response
 
             # ----------------------------------------------------------
@@ -589,6 +758,14 @@ class AgentContext:
                 billed_input_tokens=usage_input_tokens,
                 billed_output_tokens=usage_output_tokens,
             )
+        )
+
+    def record_local_llm_runtime_metrics(self, response):
+        provider = getattr(getattr(self.agent, "client", None), "client_type", None)
+        if provider != "ollama":
+            return
+        self.local_llm_runtime_metrics.append(
+            extract_ollama_response_metrics(response)
         )
 
     def handle_response(self, response):

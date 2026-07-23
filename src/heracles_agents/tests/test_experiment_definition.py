@@ -453,6 +453,32 @@ class TestExperimentDescription:
         assert experiment.metadata == metadata
         assert experiment.configurations == configurations
 
+    def test_experiment_description_propagates_local_metrics_metadata(self):
+        metadata = {
+            "local_metrics": {
+                "enabled": True,
+                "ollama_container_name": "ollama",
+            }
+        }
+        explicit_metrics = {"enabled": False}
+        self.canary_anthropic_config.local_metrics = explicit_metrics
+
+        experiment = ExperimentDescription(
+            metadata=metadata,
+            configurations={
+                "canary": self.canary_config,
+                "canary-anthropic": self.canary_anthropic_config,
+            },
+        )
+
+        assert experiment.configurations["canary"].local_metrics == metadata[
+            "local_metrics"
+        ]
+        assert (
+            experiment.configurations["canary-anthropic"].local_metrics
+            == explicit_metrics
+        )
+
     def test_experiment_description_serialization_with_real_config(self):
         """Test ExperimentDescription serialization using real config."""
         metadata = self.master_experiment_data.get("metadata", {})

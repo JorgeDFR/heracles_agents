@@ -92,6 +92,7 @@ class QuestionResult:
     n_tool_calls: int | None
     latency: dict[str, Any] = field(default_factory=dict)
     cost: dict[str, Any] | None = None
+    local_resources: dict[str, Any] | None = None
     n_sequences: int = 0
     sequences: list[dict[str, Any]] = field(default_factory=list)
     provider_model: str = ""
@@ -104,7 +105,9 @@ class ConfigurationResult:
     provider_models: list[ProviderModelRef]
     questions: list[QuestionResult]
     summary: ConfigurationSummary
+    analysis_summary: dict[str, Any] | None
     cost_summary: dict[str, Any] | None
+    local_resources: dict[str, Any] | None
 
 
 @dataclass
@@ -155,8 +158,10 @@ def result_source_from_analyzed_questions(
                 configuration_name=title,
                 provider_models=provider_models,
                 questions=questions,
-                summary=summarize_configuration(questions),
+                summary=summarize_configuration_from_data(questions, data),
+                analysis_summary=_as_dict_or_none(data.get("analysis_summary")),
                 cost_summary=_as_dict_or_none(data.get("cost_summary")),
+                local_resources=_as_dict_or_none(data.get("local_resources")),
             )
         ],
     )
@@ -202,8 +207,17 @@ def result_source_from_dict(data: dict[str, Any], path: Path) -> ResultSource:
                 configuration_name=configuration_name,
                 provider_models=provider_models,
                 questions=questions,
-                summary=summarize_configuration(questions),
+                summary=summarize_configuration_from_data(
+                    questions,
+                    configuration_data,
+                ),
+                analysis_summary=_as_dict_or_none(
+                    configuration_data.get("analysis_summary")
+                ),
                 cost_summary=_as_dict_or_none(configuration_data.get("cost_summary")),
+                local_resources=_as_dict_or_none(
+                    configuration_data.get("local_resources")
+                ),
             )
         )
 
@@ -268,6 +282,72 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
         if cost_total is not None and correct_count
         else None,
     )
+
+
+def summarize_configuration_from_data(
+    questions: list[QuestionResult],
+    configuration_data: dict[str, Any],
+) -> ConfigurationSummary:
+    summary = summarize_configuration(questions)
+    analysis_summary = _as_dict_or_none(configuration_data.get("analysis_summary"))
+    if analysis_summary:
+        latency = _as_dict_or_none(analysis_summary.get("latency")) or {}
+        summary.end_to_end_latency_total = _coalesce_float(
+            latency.get("end_to_end_seconds_total"),
+            summary.end_to_end_latency_total,
+        )
+        summary.end_to_end_latency_avg = _coalesce_float(
+            latency.get("end_to_end_seconds_avg"),
+            summary.end_to_end_latency_avg,
+        )
+        summary.end_to_end_latency_p50 = _coalesce_float(
+            latency.get("end_to_end_seconds_p50"),
+            summary.end_to_end_latency_p50,
+        )
+        summary.end_to_end_latency_p95 = _coalesce_float(
+            latency.get("end_to_end_seconds_p95"),
+            summary.end_to_end_latency_p95,
+        )
+        summary.llm_latency_total = _coalesce_float(
+            latency.get("llm_call_seconds_total"),
+            summary.llm_latency_total,
+        )
+        summary.llm_latency_avg = _coalesce_float(
+            latency.get("llm_call_seconds_avg"),
+            summary.llm_latency_avg,
+        )
+        summary.tool_latency_total = _coalesce_float(
+            latency.get("tool_execution_seconds_total"),
+            summary.tool_latency_total,
+        )
+        summary.neo4j_latency_total = _coalesce_float(
+            latency.get("neo4j_query_seconds_total"),
+            summary.neo4j_latency_total,
+        )
+        summary.validation_latency_total = _coalesce_float(
+            latency.get("parsing_validation_seconds_total"),
+            summary.validation_latency_total,
+        )
+        summary.retry_wait_total = _coalesce_float(
+            latency.get("retry_wait_seconds_total"),
+            summary.retry_wait_total,
+        )
+
+    cost_summary = _as_dict_or_none(configuration_data.get("cost_summary"))
+    if cost_summary:
+        summary.cost_total_usd = _coalesce_float(
+            cost_summary.get("total_cost_usd"),
+            summary.cost_total_usd,
+        )
+        summary.cost_per_question_usd = _coalesce_float(
+            cost_summary.get("cost_per_question_usd"),
+            summary.cost_per_question_usd,
+        )
+        summary.cost_per_correct_answer_usd = _coalesce_float(
+            cost_summary.get("cost_per_correct_answer_usd"),
+            summary.cost_per_correct_answer_usd,
+        )
+    return summary
 
 
 def render_terminal_summary(
@@ -392,6 +472,7 @@ def _parse_questions(
         analysis = analyzed_question.get("analysis") or {}
         latency = analysis.get("latency") or {}
         cost = analysis.get("cost")
+        local_resources = analysis.get("local_resources")
         sequences = analyzed_question.get("sequences") or []
         questions.append(
             QuestionResult(
@@ -411,6 +492,9 @@ def _parse_questions(
                 n_tool_calls=_coerce_int(analysis.get("n_tool_calls")),
                 latency=latency if isinstance(latency, dict) else {},
                 cost=cost if isinstance(cost, dict) else None,
+                local_resources=local_resources
+                if isinstance(local_resources, dict)
+                else None,
                 n_sequences=len(sequences),
                 sequences=sequences if isinstance(sequences, list) else [],
             )
@@ -559,6 +643,17 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _coalesce_float(value: Any, fallback: float | None) -> float | None:
+    coerced = _coerce_float(value)
+    return coerced if coerced is not None else fallback
+
+
+def _avg(values: Sequence[float | int]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 6)
+
+
 def _as_optional_bool(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
@@ -607,7 +702,13 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                     "configuration": configuration.configuration_name,
                     "provider_model": provider_model_label,
                     "summary": summary,
+                    "analysis_summary": configuration.analysis_summary,
                     "cost_summary": configuration.cost_summary,
+                    "local_resources": configuration.local_resources,
+                    "local_resources_summary": _summarize_local_resources(
+                        configuration.local_resources,
+                        configuration.questions,
+                    ),
                 }
             )
             for ref in configuration.provider_models:
@@ -641,6 +742,8 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "n_tool_calls": question.n_tool_calls,
                         "latency": question.latency,
                         "cost": question.cost,
+                        "local_resources": question.local_resources,
+                        "configuration_local_resources": configuration.local_resources,
                         "n_sequences": question.n_sequences,
                         "sequences": question.sequences,
                     }
@@ -652,6 +755,135 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
         "provider_models": provider_models,
         "questions": questions,
     }
+
+
+def _summarize_local_resources(
+    configuration_local_resources: dict[str, Any] | None,
+    questions: Sequence[QuestionResult],
+) -> dict[str, Any]:
+    if configuration_local_resources:
+        return {
+            "cpu_avg_percent": _first_non_none(
+                _local_resource_value(
+                    configuration_local_resources,
+                    "cpu",
+                    "container_cpu_percent_normalized_avg",
+                ),
+                _local_resource_value(
+                    configuration_local_resources,
+                    "cpu",
+                    "container_cpu_percent_avg",
+                ),
+            ),
+            "cpu_peak_percent": _first_non_none(
+                _local_resource_value(
+                    configuration_local_resources,
+                    "cpu",
+                    "container_cpu_percent_normalized_peak",
+                ),
+                _local_resource_value(
+                    configuration_local_resources,
+                    "cpu",
+                    "container_cpu_percent_peak",
+                ),
+            ),
+            "ram_peak_bytes": _local_resource_value(
+                configuration_local_resources,
+                "ram",
+                "container_ram_bytes_peak",
+            ),
+            "gpu_vram_peak_mib": _local_resource_value(
+                configuration_local_resources,
+                "gpu",
+                "gpu_memory_used_mib_adjusted_peak",
+            ),
+            "gpu_avg_percent": _local_resource_value(
+                configuration_local_resources,
+                "gpu",
+                "gpu_utilization_percent_adjusted_avg",
+            ),
+            "gpu_power_avg_w": _local_resource_value(
+                configuration_local_resources,
+                "gpu",
+                "gpu_power_w_adjusted_avg",
+            ),
+            "gpu_energy_wh": _local_resource_value(
+                configuration_local_resources,
+                "gpu",
+                "gpu_energy_wh_adjusted",
+            ),
+            "throughput_tokens_per_second": _local_resource_value(
+                configuration_local_resources,
+                "ollama",
+                "output_tokens_per_second",
+            ),
+            "load_time_seconds": _local_resource_value(
+                configuration_local_resources,
+                "ollama",
+                "load_duration_seconds",
+            ),
+        }
+
+    def values(group: str, key: str) -> list[float]:
+        return [
+            value
+            for question in questions
+            for value in [
+                _coerce_float(
+                    ((question.local_resources or {}).get(group) or {}).get(key)
+                )
+            ]
+            if value is not None
+        ]
+
+    cpu_avg = values("cpu", "container_cpu_percent_avg")
+    cpu_peak = values("cpu", "container_cpu_percent_peak")
+    cpu_normalized_avg = values("cpu", "container_cpu_percent_normalized_avg")
+    cpu_normalized_peak = values("cpu", "container_cpu_percent_normalized_peak")
+    ram_peak = values("ram", "container_ram_bytes_peak")
+    gpu_vram_peak = values("gpu", "gpu_memory_used_mib_adjusted_peak")
+    gpu_util_avg = values("gpu", "gpu_utilization_percent_adjusted_avg")
+    gpu_power_avg = values("gpu", "gpu_power_w_adjusted_avg")
+    gpu_energy = values("gpu", "gpu_energy_wh_adjusted")
+    ollama_tps = values("ollama", "output_tokens_per_second")
+    load_time = values("ollama", "load_duration_seconds")
+
+    cpu_avg_value = _avg(cpu_normalized_avg)
+    if cpu_avg_value is None:
+        cpu_avg_value = _avg(cpu_avg)
+
+    return {
+        "cpu_avg_percent": cpu_avg_value,
+        "cpu_peak_percent": (
+            max(cpu_normalized_peak)
+            if cpu_normalized_peak
+            else max(cpu_peak)
+            if cpu_peak
+            else None
+        ),
+        "ram_peak_bytes": max(ram_peak) if ram_peak else None,
+        "gpu_vram_peak_mib": max(gpu_vram_peak) if gpu_vram_peak else None,
+        "gpu_avg_percent": _avg(gpu_util_avg),
+        "gpu_power_avg_w": _avg(gpu_power_avg),
+        "gpu_energy_wh": round(sum(gpu_energy), 9) if gpu_energy else None,
+        "throughput_tokens_per_second": _avg(ollama_tps),
+        "load_time_seconds": max(load_time) if load_time else None,
+    }
+
+
+def _local_resource_value(
+    local_resources: dict[str, Any],
+    group: str,
+    key: str,
+) -> float | None:
+    return _coerce_float((local_resources.get(group) or {}).get(key))
+
+
+def _first_non_none(*values: float | None) -> float | None:
+    for value in values:
+        if value is not None:
+            return value
+    return None
 
 
 _HTML_TEMPLATE = """<!doctype html>
@@ -855,6 +1087,7 @@ _HTML_TEMPLATE = """<!doctype html>
         <label><input type="checkbox" data-group="tokens"> Tokens/tools</label>
         <label><input type="checkbox" data-group="latency"> Latency</label>
         <label><input type="checkbox" data-group="cost"> Cost</label>
+        <label><input type="checkbox" data-group="local_resources"> Local Resources</label>
       </div>
     </div>
   </header>
@@ -864,12 +1097,12 @@ _HTML_TEMPLATE = """<!doctype html>
       <div class="section-body" id="sources"></div>
     </details>
     <details class="report-section" open>
-      <summary><h2>Overview</h2></summary>
-      <div class="section-body" id="overview"></div>
-    </details>
-    <details class="report-section" open>
       <summary><h2>Provider Models</h2></summary>
       <div class="section-body" id="providerModels"></div>
+    </details>
+    <details class="report-section" open>
+      <summary><h2>Overview</h2></summary>
+      <div class="section-body" id="overview"></div>
     </details>
     <details class="report-section" open>
       <summary><h2>Questions</h2></summary>
@@ -908,11 +1141,38 @@ _HTML_TEMPLATE = """<!doctype html>
       const formatted = number(value);
       return formatted === "" ? "" : `${formatted}s`;
     }
+    function percent(value) {
+      const formatted = number(value, 1);
+      return formatted === "" ? "" : `${formatted}%`;
+    }
     function money(value) {
       if (value === null || value === undefined || value === "") return "";
       const n = Number(value);
       if (!Number.isFinite(n)) return text(value);
       return "$" + n.toFixed(6).replace(/0+$/, "").replace(/\\.$/, "");
+    }
+    function bytes(value) {
+      if (value === null || value === undefined || value === "") return "";
+      const n = Number(value);
+      if (!Number.isFinite(n)) return text(value);
+      const mibValue = n / (1024 * 1024);
+      return `${number(mibValue, 1)} MiB`;
+    }
+    function mib(value) {
+      const formatted = number(value, 1);
+      return formatted === "" ? "" : `${formatted} MiB`;
+    }
+    function watts(value) {
+      const formatted = number(value, 2);
+      return formatted === "" ? "" : `${formatted} W`;
+    }
+    function wattHours(value) {
+      const formatted = number(value, 4);
+      return formatted === "" ? "" : `${formatted} Wh`;
+    }
+    function tokensPerSecond(value) {
+      const formatted = number(value, 2);
+      return formatted === "" ? "" : `${formatted} tok/s`;
     }
     function bool(value) {
       if (value === true) return '<span class="status-true">true</span>';
@@ -939,6 +1199,12 @@ _HTML_TEMPLATE = """<!doctype html>
     function cost(q) {
       return q.cost && q.cost.total_cost_usd !== undefined ? q.cost.total_cost_usd : null;
     }
+    function localResource(q, group, key) {
+      return q.local_resources && q.local_resources[group] ? q.local_resources[group][key] : null;
+    }
+    function localSummary(row, key) {
+      return row.local_resources_summary ? row.local_resources_summary[key] : null;
+    }
     function providerLabel(row) {
       return [row.provider, row.model_identifier].filter(Boolean).join("/");
     }
@@ -946,6 +1212,9 @@ _HTML_TEMPLATE = """<!doctype html>
       if (value === null || value === undefined || value === "") return false;
       if (typeof value === "number") return value !== 0;
       return true;
+    }
+    function hasValue(accessor) {
+      return row => hasMeaningfulValue(accessor(row));
     }
     function searchMatchesQuestion(q) {
       const term = filters.search.value.trim().toLowerCase();
@@ -1035,13 +1304,24 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
         { key: "provider_model", label: "Provider / Model" },
-        { key: "questions", label: "Questions", render: r => text(r.summary.questions), sortValue: r => r.summary.questions },
-        { key: "accuracy", label: "Accuracy", render: r => number((r.summary.accuracy || 0) * 100, 1) + "%", sortValue: r => r.summary.accuracy },
-        { key: "completed_rate", label: "Completed", render: r => number((r.summary.completed_rate || 0) * 100, 1) + "%", sortValue: r => r.summary.completed_rate },
-        { key: "input_tokens_total", label: "Input Tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total },
-        { key: "output_tokens_total", label: "Output Tokens", render: r => text(r.summary.output_tokens_total), sortValue: r => r.summary.output_tokens_total },
-        { key: "end_to_end_latency_avg", label: "Avg E2E Latency (s)", render: r => number(r.summary.end_to_end_latency_avg), sortValue: r => r.summary.end_to_end_latency_avg },
-        { key: "cost_total_usd", label: "Cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd },
+        { key: "questions", label: "Questions", group: "quality", render: r => text(r.summary.questions), sortValue: r => r.summary.questions },
+        { key: "completed_rate", label: "Completed", group: "quality", render: r => percent((r.summary.completed_rate || 0) * 100), sortValue: r => r.summary.completed_rate },
+        { key: "valid_answer_rate", label: "Valid Answer", group: "quality", render: r => percent((r.summary.valid_answer_rate || 0) * 100), sortValue: r => r.summary.valid_answer_rate },
+        { key: "accuracy", label: "Accuracy", group: "quality", render: r => percent((r.summary.accuracy || 0) * 100), sortValue: r => r.summary.accuracy },
+        { key: "input_tokens_total", label: "Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total, visible: hasValue(r => r.summary.input_tokens_total) },
+        { key: "output_tokens_total", label: "Output Tokens", group: "tokens", render: r => text(r.summary.output_tokens_total), sortValue: r => r.summary.output_tokens_total, visible: hasValue(r => r.summary.output_tokens_total) },
+        { key: "tool_calls_total", label: "Tool Calls", group: "tokens", render: r => text(r.summary.tool_calls_total), sortValue: r => r.summary.tool_calls_total, visible: hasValue(r => r.summary.tool_calls_total) },
+        { key: "end_to_end_latency_avg", label: "End-to-End Average Latency", group: "latency", render: r => seconds(r.summary.end_to_end_latency_avg), sortValue: r => r.summary.end_to_end_latency_avg, visible: hasValue(r => r.summary.end_to_end_latency_avg) },
+        { key: "cost_total_usd", label: "Cost", group: "cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd, visible: hasValue(r => r.summary.cost_total_usd) },
+        { key: "local_resources_summary.cpu_avg_percent", label: "CPU Avg", group: "local_resources", render: r => percent(localSummary(r, "cpu_avg_percent")), sortValue: r => localSummary(r, "cpu_avg_percent"), visible: hasValue(r => localSummary(r, "cpu_avg_percent")) },
+        { key: "local_resources_summary.cpu_peak_percent", label: "CPU Peak", group: "local_resources", render: r => percent(localSummary(r, "cpu_peak_percent")), sortValue: r => localSummary(r, "cpu_peak_percent"), visible: hasValue(r => localSummary(r, "cpu_peak_percent")) },
+        { key: "local_resources_summary.ram_peak_bytes", label: "RAM Peak", group: "local_resources", render: r => bytes(localSummary(r, "ram_peak_bytes")), sortValue: r => localSummary(r, "ram_peak_bytes"), visible: hasValue(r => localSummary(r, "ram_peak_bytes")) },
+        { key: "local_resources_summary.gpu_vram_peak_mib", label: "VRAM Peak", group: "local_resources", render: r => mib(localSummary(r, "gpu_vram_peak_mib")), sortValue: r => localSummary(r, "gpu_vram_peak_mib"), visible: hasValue(r => localSummary(r, "gpu_vram_peak_mib")) },
+        { key: "local_resources_summary.gpu_avg_percent", label: "GPU Avg", group: "local_resources", render: r => percent(localSummary(r, "gpu_avg_percent")), sortValue: r => localSummary(r, "gpu_avg_percent"), visible: hasValue(r => localSummary(r, "gpu_avg_percent")) },
+        { key: "local_resources_summary.gpu_power_avg_w", label: "GPU Power Avg", group: "local_resources", render: r => watts(localSummary(r, "gpu_power_avg_w")), sortValue: r => localSummary(r, "gpu_power_avg_w"), visible: hasValue(r => localSummary(r, "gpu_power_avg_w")) },
+        { key: "local_resources_summary.gpu_energy_wh", label: "GPU Energy", group: "local_resources", render: r => wattHours(localSummary(r, "gpu_energy_wh")), sortValue: r => localSummary(r, "gpu_energy_wh"), visible: hasValue(r => localSummary(r, "gpu_energy_wh")) },
+        { key: "local_resources_summary.throughput_tokens_per_second", label: "Throughput", group: "local_resources", render: r => tokensPerSecond(localSummary(r, "throughput_tokens_per_second")), sortValue: r => localSummary(r, "throughput_tokens_per_second"), visible: hasValue(r => localSummary(r, "throughput_tokens_per_second")) },
+        { key: "local_resources_summary.load_time_seconds", label: "Load Time", group: "local_resources", render: r => seconds(localSummary(r, "load_time_seconds")), sortValue: r => localSummary(r, "load_time_seconds"), visible: hasValue(r => localSummary(r, "load_time_seconds")) },
       ], rows);
     }
     function renderProviderModels() {
@@ -1061,7 +1341,6 @@ _HTML_TEMPLATE = """<!doctype html>
     }
     function renderQuestions() {
       const rows = filteredQuestions();
-      const hasValue = accessor => row => hasMeaningfulValue(accessor(row));
       const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
@@ -1132,6 +1411,7 @@ _HTML_TEMPLATE = """<!doctype html>
         <h2>Answer</h2><pre>${escapeHtml(q.answer)}</pre>
         <h2>Latency (s)</h2><pre>${escapeHtml(JSON.stringify(q.latency || {}, null, 2))}</pre>
         <h2>Cost</h2><pre>${escapeHtml(JSON.stringify(q.cost || {}, null, 2))}</pre>
+        <h2>Local Resources</h2><pre>${escapeHtml(JSON.stringify(q.configuration_local_resources || q.local_resources || {}, null, 2))}</pre>
         <h2>Sequences</h2>${sequenceHtml || '<div class="muted">No sequences recorded.</div>'}
       `;
     }

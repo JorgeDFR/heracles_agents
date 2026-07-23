@@ -316,3 +316,29 @@ def test_sweep_run_writes_one_result_file_per_completed_configuration(
             }
         }
     }
+
+
+def test_experiment_runner_debug_configures_local_metrics_sample_output():
+    runner_path = project_root() / "examples/experiment_runner.py"
+    spec = importlib.util.spec_from_file_location("experiment_runner", runner_path)
+    experiment_runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(experiment_runner)
+    experiment_config = SimpleNamespace(
+        local_metrics={
+            "enabled": True,
+            "sample_interval_seconds": 0.025,
+        }
+    )
+    result_path = Path("output/ollama/canary_results.yaml")
+
+    experiment_runner.configure_debug_outputs(
+        experiment_config,
+        result_path,
+        "canary-local-metrics",
+    )
+
+    assert experiment_config.local_metrics["record_samples"] is True
+    assert (
+        experiment_config.local_metrics["samples_output_path"]
+        == "output/ollama/canary_canary-local-metrics_local_metrics_samples.yaml"
+    )

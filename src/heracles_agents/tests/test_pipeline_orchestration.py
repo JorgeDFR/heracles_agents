@@ -117,6 +117,7 @@ def test_canary_pipeline_happy_path(monkeypatch):
     assert analyzed.analysis.latency.llm_call_seconds == 0.1
     assert analyzed.analysis.latency.tool_execution_seconds == 0.2
     assert analyzed.analysis.latency.retry_wait_seconds == 0.3
+    assert analyzed.analysis.local_resources is None
     assert analyzed.sequences[0].description == "canary-agent"
     assert FakeContext.instances[0].prompt.novel_instruction == "Question: What is 1 + 1?"
 

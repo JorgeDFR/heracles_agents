@@ -72,6 +72,7 @@ class ExperimentConfiguration(BaseModel):
     phases: dict[str, LlmAgent]
     dsg_interface: DsgInterfaceConfigType = Field(discriminator="dsg_interface_type")
     questions: list[EvalQuestion]
+    local_metrics: dict | None = None
 
     @field_validator("questions", mode="before")
     @classmethod
@@ -133,6 +134,16 @@ class ExperimentConfiguration(BaseModel):
 class ExperimentDescription(BaseModel):
     metadata: dict
     configurations: dict[str, ExperimentConfiguration]
+
+    @model_validator(mode="after")
+    def propagate_local_metrics(self):
+        local_metrics = self.metadata.get("local_metrics")
+        if not isinstance(local_metrics, dict):
+            return self
+        for configuration in self.configurations.values():
+            if configuration.local_metrics is None:
+                configuration.local_metrics = local_metrics
+        return self
 
 
 if __name__ == "__main__":

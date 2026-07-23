@@ -149,7 +149,7 @@ python examples/experiment_runner.py \
 # Choose an output directory and suppress live result tables
 python examples/experiment_runner.py \
   examples/experiments/openai/cypher_experiment.yaml \
-  --output-dir output/manual_runs \
+  --output-dir output \
   --no-display
 ```
 
@@ -192,7 +192,7 @@ For full metric analysis and cross-run comparison, generate a self-contained
 HTML report:
 
 ```bash
-python examples/display_yaml_results.py output/openrouter/*.yaml \
+python examples/display_yaml_results.py output/openrouter/*_results.yaml \
   --mode html \
   --output output/openrouter/report.html
 

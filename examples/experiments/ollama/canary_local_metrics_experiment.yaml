@@ -1,4 +1,15 @@
-metadata: {}
+metadata:
+  local_metrics:
+    enabled: true
+    target_provider: ollama
+    ollama_container_name: ollama
+    docker_host: tcp://docker-socket-proxy:2375
+    ollama_host: http://ollama:11434
+    sample_interval_seconds: 0.025
+    gpu_baseline_seconds: 5
+    unload_models_before_baseline: true
+    baseline_adjust_gpu: true
+
 configurations:
 
     canary:

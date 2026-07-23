@@ -27,12 +27,14 @@ setup(
         "openrouter": ["openrouter"],
         "ollama": ["ollama"],
         "huggingface": [],
+        "local_metrics": ["psutil"],
         "all": [
             "openai",
             "anthropic",
             "ollama",
             "boto3",
             "openrouter",
+            "psutil",
         ],
     },
 )

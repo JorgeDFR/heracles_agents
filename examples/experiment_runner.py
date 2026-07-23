@@ -62,6 +62,15 @@ def parse_args() -> argparse.Namespace:
         help="Do not print per-configuration result tables while running.",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=(
+            "Enable debug artifacts for experiment runs. Currently records raw "
+            "local resource samples next to the result YAML when local metrics "
+            "are enabled."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -129,6 +138,33 @@ def output_path_for_configuration(
     )
 
 
+def debug_samples_path_for(result_path: Path, configuration_name: str) -> Path:
+    safe_configuration_name = configuration_name.replace(" ", "_").lower()
+    result_stem = result_path.stem
+    if result_stem.endswith("_results"):
+        result_stem = result_stem[: -len("_results")]
+    return result_path.with_name(
+        f"{result_stem}_{safe_configuration_name}_local_metrics_samples.yaml"
+    )
+
+
+def configure_debug_outputs(
+    experiment_config,
+    result_path: Path,
+    configuration_name: str,
+) -> None:
+    local_metrics = getattr(experiment_config, "local_metrics", None)
+    if not isinstance(local_metrics, dict):
+        return
+    experiment_config.local_metrics = {
+        **local_metrics,
+        "record_samples": True,
+        "samples_output_path": str(
+            debug_samples_path_for(result_path, configuration_name)
+        ),
+    }
+
+
 def build_llm_metadata(
     experiment: ExperimentDescription,
     configuration_names: set[str],
@@ -160,6 +196,7 @@ def run_experiment(
     *,
     continue_on_error: bool,
     display_results: bool,
+    debug: bool = False,
 ) -> list[Path]:
     logger.info("Running experiment: %s", experiment_path)
     experiment, sweep_context = load_experiment_with_context(experiment_path)
@@ -187,6 +224,17 @@ def run_experiment(
             continue
 
         logger.info("Running configuration: %s", configuration_name)
+        if debug:
+            result_path = (
+                output_path_for_configuration(
+                    experiment_path,
+                    output_dir,
+                    configuration_name,
+                )
+                if has_model_sweeps
+                else output_path_for(experiment_path, output_dir)
+            )
+            configure_debug_outputs(experiment_config, result_path, configuration_name)
         try:
             analyzed_questions = experiment_config.pipeline.function(experiment_config)
         except Exception as ex:
@@ -283,6 +331,7 @@ def main() -> int:
                     selected_configurations,
                     continue_on_error=args.continue_on_error,
                     display_results=not args.no_display,
+                    debug=args.debug,
                 )
             )
         except Exception:

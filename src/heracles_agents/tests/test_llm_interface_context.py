@@ -299,11 +299,23 @@ def test_experiment_result_dump_uses_compact_ordered_yaml_shape():
         "sequences",
     ]
     assert list(dumped_experiment) == ["metadata", "experiment_configurations"]
+    dumped_configuration = dumped_experiment["experiment_configurations"][
+        "configuration"
+    ]
+    assert list(dumped_configuration) == ["analysis_summary", "analyzed_questions"]
+    assert dumped_configuration["analysis_summary"]["questions"] == 1
+    assert dumped_configuration["analysis_summary"]["correct_count"] == 1
+    assert (
+        dumped_configuration["analysis_summary"]["latency"][
+            "end_to_end_seconds_avg"
+        ]
+        == 1.0
+    )
     assert (
         "analysis"
-        not in dumped_experiment["experiment_configurations"]["configuration"][
-            "analyzed_questions"
-        ][0]["sequences"][0]["responses"][0]
+        not in dumped_configuration["analyzed_questions"][0]["sequences"][0][
+            "responses"
+        ][0]
     )
     assert dumped_question["analysis"]["latency"] == {
         "end_to_end_seconds": 1.0,
@@ -317,8 +329,9 @@ def test_experiment_result_dump_uses_compact_ordered_yaml_shape():
     assert "cost" not in dumped_question["analysis"]
     assert (
         "cost_summary"
-        not in dumped_experiment["experiment_configurations"]["configuration"]
+        not in dumped_configuration
     )
+    assert "local_resources" not in dumped_configuration
 
 
 def test_make_latency_metrics_aggregates_contexts():

@@ -20,6 +20,11 @@ from heracles_agents.llm_interface import (
     make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
+from heracles_agents.pipelines.local_metrics import (
+    make_local_resource_metrics,
+    prepare_local_resource_monitor,
+    start_local_resource_measurement,
+)
 from heracles_agents.pipelines.prompt_utils import get_answer_formatting_guidance
 
 logger = logging.getLogger(__name__)
@@ -54,6 +59,9 @@ def generate_prompt(
 
 def canary_pipeline(exp):
     analyzed_questions = []
+    local_monitor = prepare_local_resource_monitor(exp)
+    local_measurement = start_local_resource_measurement(local_monitor)
+    all_contexts = []
 
     for question in exp.questions:
         question_started = perf_counter()
@@ -106,6 +114,15 @@ def canary_pipeline(exp):
         except Exception as ex:
             logger.error("Bad Question!")
             logger.error(str(ex))
+            for idx, context in enumerate(contexts):
+                if not getattr(context, "history", None):
+                    continue
+                sequences.append(
+                    AgentSequence(
+                        description="canary-agent",
+                        responses=context.get_agent_responses(),
+                    )
+                )
             analysis = QuestionAnalysis(
                 correct=False,
                 valid_answer_format=False,
@@ -120,6 +137,7 @@ def canary_pipeline(exp):
                 cost=make_cost_metrics(contexts),
             )
 
+        all_contexts.extend(contexts)
         aq = AnalyzedQuestion(
             question=question,
             answer=answer,
@@ -129,7 +147,10 @@ def canary_pipeline(exp):
         )
         analyzed_questions.append(aq)
 
-    aqs = AnalyzedQuestions(analyzed_questions=analyzed_questions)
+    aqs = AnalyzedQuestions(
+        analyzed_questions=analyzed_questions,
+        local_resources=make_local_resource_metrics(all_contexts, local_measurement),
+    )
     return aqs
 
 

@@ -20,6 +20,11 @@ from heracles_agents.llm_interface import (
     make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
+from heracles_agents.pipelines.local_metrics import (
+    make_local_resource_metrics,
+    prepare_local_resource_monitor,
+    start_local_resource_measurement,
+)
 from heracles_agents.pipelines.prompt_utils import get_answer_formatting_guidance
 
 logger = logging.getLogger(__name__)
@@ -57,6 +62,9 @@ def generate_prompt(
 
 def agentic_pipeline(exp):
     analyzed_questions = []
+    local_monitor = prepare_local_resource_monitor(exp)
+    local_measurement = start_local_resource_measurement(local_monitor)
+    all_contexts = []
     api_string = None
     if exp.dsg_interface.dsg_interface_type == "python":
         api_string = exp.dsg_interface.get_dsg_api_prompt()
@@ -144,6 +152,7 @@ def agentic_pipeline(exp):
                 cost=make_cost_metrics(contexts),
             )
 
+        all_contexts.extend(contexts)
         aq = AnalyzedQuestion(
             question=question,
             answer=answer,
@@ -153,7 +162,10 @@ def agentic_pipeline(exp):
         )
         analyzed_questions.append(aq)
 
-    aqs = AnalyzedQuestions(analyzed_questions=analyzed_questions)
+    aqs = AnalyzedQuestions(
+        analyzed_questions=analyzed_questions,
+        local_resources=make_local_resource_metrics(all_contexts, local_measurement),
+    )
     return aqs
 
 

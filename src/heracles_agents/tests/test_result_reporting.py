@@ -29,6 +29,37 @@ def sample_result_data(*, answer="<answer>2</answer>"):
         },
         "experiment_configurations": {
             "canary": {
+                "local_resources": {
+                    "measurement_scope": "ollama_container",
+                    "ollama_container_name": "ollama",
+                    "sample_interval_seconds": 0.025,
+                    "baseline_seconds": 5,
+                    "baseline_adjusted": True,
+                    "telemetry": {
+                        "gpu_effective_interval_seconds_avg": 0.026,
+                        "docker_effective_interval_seconds_avg": 1.0,
+                    },
+                    "cpu": {
+                        "container_cpu_percent_avg": 240.0,
+                        "container_cpu_percent_peak": 320.0,
+                    },
+                    "ram": {
+                        "container_ram_bytes_peak": 1048576,
+                    },
+                    "gpu": {
+                        "gpu_memory_used_mib_adjusted_peak": 1024,
+                        "gpu_utilization_percent_adjusted_avg": 75,
+                        "gpu_power_w_adjusted_avg": 100,
+                        "gpu_energy_wh_adjusted": 0.01,
+                    },
+                    "ollama": {
+                        "output_tokens_per_second": 20,
+                        "load_duration_seconds": 1.5,
+                    },
+                    "warnings": [
+                        "GPU metrics are baseline-adjusted.",
+                    ],
+                },
                 "cost_summary": {
                     "total_cost_usd": 0.003,
                     "cost_per_question_usd": 0.0015,
@@ -69,6 +100,33 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                                 "cost_basis": "provider_reported",
                                 "currency": "USD",
                                 "llm_calls": [],
+                            },
+                            "local_resources": {
+                                "measurement_scope": "ollama_container",
+                                "ollama_container_name": "ollama",
+                                "sample_interval_seconds": 0.5,
+                                "baseline_seconds": 5,
+                                "baseline_adjusted": True,
+                                "cpu": {
+                                    "container_cpu_percent_avg": 240.0,
+                                    "container_cpu_percent_peak": 320.0,
+                                },
+                                "ram": {
+                                    "container_ram_bytes_peak": 1048576,
+                                },
+                                "gpu": {
+                                    "gpu_memory_used_mib_adjusted_peak": 1024,
+                                    "gpu_utilization_percent_adjusted_avg": 75,
+                                    "gpu_power_w_adjusted_avg": 100,
+                                    "gpu_energy_wh_adjusted": 0.01,
+                                },
+                                "ollama": {
+                                    "output_tokens_per_second": 20,
+                                    "load_duration_seconds": 1.5,
+                                },
+                                "warnings": [
+                                    "GPU metrics are baseline-adjusted.",
+                                ],
                             },
                         },
                         "completed": True,
@@ -130,6 +188,7 @@ def test_load_result_file_normalizes_experiment_yaml_shape(tmp_path):
     assert configuration.configuration_name == "canary"
     assert configuration.provider_models[0].provider == "openrouter"
     assert configuration.provider_models[0].model_identifier == "openai/gpt-test"
+    assert configuration.local_resources["ollama"]["load_duration_seconds"] == 1.5
     assert configuration.questions[0].name == "Arithmetic <One>"
     assert configuration.questions[0].latency["end_to_end_seconds"] == 2.0
     assert configuration.questions[0].cost["total_cost_usd"] == 0.001
@@ -221,13 +280,25 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     html = output_path.read_text(encoding="utf-8")
 
     assert "Heracles Experiment Results" in html
-    assert "Avg E2E Latency (s)" in html
+    assert 'label: "End-to-End Average Latency"' in html
     assert "Latency (s)" in html
     assert 'label: "End-to-End Latency"' in html
     assert 'label: "End-to-End Latency (s)"' not in html
     assert "function seconds(value)" in html
+    assert "function percent(value)" in html
     assert "hasMeaningfulValue" in html
     assert "Cost USD" in html
+    assert "Local Resources" in html
+    assert 'label: "CPU Avg"' in html
+    assert 'label: "GPU Avg"' in html
+    assert 'label: "VRAM Peak"' in html
+    assert 'label: "Throughput"' in html
+    assert 'label: "Load Time"' in html
+    assert 'label: "Docker Sample"' not in html
+    assert 'label: "GPU Sample"' not in html
+    assert "tok/s" in html
+    assert '"local_resources"' in html
+    assert '"local_resources_summary"' in html
     assert 'label: "Topic"' in html
     assert "Topic: ${escapeHtml(q.name)}" in html
     assert "Sequences" in html

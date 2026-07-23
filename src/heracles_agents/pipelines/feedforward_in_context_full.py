@@ -20,6 +20,11 @@ from heracles_agents.llm_interface import (
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
 from heracles_agents.pipelines.in_context_utils import scene_graph_to_prompt_full
+from heracles_agents.pipelines.local_metrics import (
+    make_local_resource_metrics,
+    prepare_local_resource_monitor,
+    start_local_resource_measurement,
+)
 from heracles_agents.pipelines.prompt_utils import get_answer_formatting_guidance
 
 logger = logging.getLogger(__name__)
@@ -55,6 +60,9 @@ def generate_prompt(
 
 def incontext_dsg(exp):
     analyzed_questions = []
+    local_monitor = prepare_local_resource_monitor(exp)
+    local_measurement = start_local_resource_measurement(local_monitor)
+    all_contexts = []
     for question in exp.questions:
         question_started = perf_counter()
         contexts = []
@@ -119,6 +127,7 @@ def incontext_dsg(exp):
                 cost=make_cost_metrics(contexts),
             )
 
+        all_contexts.extend(contexts)
         aq = AnalyzedQuestion(
             question=question,
             answer=answer,
@@ -128,7 +137,10 @@ def incontext_dsg(exp):
         )
         analyzed_questions.append(aq)
 
-    aqs = AnalyzedQuestions(analyzed_questions=analyzed_questions)
+    aqs = AnalyzedQuestions(
+        analyzed_questions=analyzed_questions,
+        local_resources=make_local_resource_metrics(all_contexts, local_measurement),
+    )
     return aqs
 
 
