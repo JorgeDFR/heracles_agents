@@ -280,7 +280,7 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     html = output_path.read_text(encoding="utf-8")
 
     assert "Heracles Experiment Results" in html
-    assert 'label: "End-to-End Average Latency"' in html
+    assert 'label: "Average End-to-End Latency"' in html
     assert "Latency (s)" in html
     assert 'label: "End-to-End Latency"' in html
     assert 'label: "End-to-End Latency (s)"' not in html

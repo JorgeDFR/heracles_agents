@@ -153,35 +153,37 @@ python examples/experiment_runner.py \
   --no-display
 ```
 
-OpenRouter model sweeps can be configured with a reusable model list. The
-provided research sweep uses
-[examples/experiments/openrouter/model_lists/research_11.yaml](examples/experiments/openrouter/model_lists/research_11.yaml);
-future model changes should usually only require editing that file.
+OpenRouter and Ollama model sweeps can be configured with a reusable model list.
+The OpenRouter provided example sweep uses
+[examples/experiments/openrouter/model_lists/example.yaml](examples/experiments/openrouter/model_lists/example.yaml)
+while the Ollama provided example sweep uses
+[examples/experiments/ollama/model_lists/example.yaml](examples/experiments/ollama/model_lists/example.yaml).
+Future model changes should usually only require editing those files.
 
 ```bash
-# Test one model from the Cypher sweep
+# Test one model from the Cypher Ollama model sweep
 python examples/experiment_runner.py \
-  examples/experiments/openrouter/cypher_model_sweep.yaml \
-  --configuration agentic-cypher-qa-deepseek-v4-flash \
-  --output-dir output/openrouter_model_sweep
+  examples/experiments/ollama/cypher_model_sweep.yaml \
+  --configuration agentic-cypher-qa-gemma4-12b \
+  --output-dir output/model_sweep
 
 # Run the full Cypher and PDDL OpenRouter model sweeps
 python examples/experiment_runner.py \
   examples/experiments/openrouter/cypher_model_sweep.yaml \
   examples/experiments/openrouter/pddl_model_sweep.yaml \
-  --output-dir output/openrouter_model_sweep \
+  --output-dir output/model_sweep \
   --no-display
 ```
 
 Model sweep runs write one result YAML per generated model configuration under
-`output/<output-dir>/openrouter/<experiment-name>/`. The file name includes the
+`output/<output-dir>/<openrouter|ollama>/<experiment-name>/`. The file name includes the
 model alias, while the configuration name inside each result YAML stays stable
 for grouping, such as `agentic-cypher-qa` or `agentic-cypher-pddl`.
 
 To inspect saved result YAML files later, use the terminal summary:
 
 ```bash
-python examples/display_yaml_results.py output/openai/cypher_experiment_results.yaml
+python examples/display_yaml_results.py output/openrouter/cypher_experiment_results.yaml
 ```
 
 The terminal view is intentionally limited to question text, solution, answer,
@@ -197,10 +199,12 @@ python examples/display_yaml_results.py output/openrouter/*_results.yaml \
   --output output/openrouter/report.html
 
 python examples/display_yaml_results.py \
-  output/openrouter_model_sweep/openrouter/cypher_model_sweep/*_results.yaml \
-  output/openrouter_model_sweep/openrouter/pddl_model_sweep/*_results.yaml \
+  output/model_sweep/openrouter/cypher_model_sweep/*_results.yaml \
+  output/model_sweep/openrouter/pddl_model_sweep/*_results.yaml \
+  output/model_sweep/ollama/cypher_model_sweep/*_results.yaml \
+  output/model_sweep/ollama/pddl_model_sweep/*_results.yaml \
   --mode html \
-  --output output/openrouter_model_sweep/report.html
+  --output output/model_sweep/report.html
 ```
 
 The HTML report includes all recorded latency metrics, sequence details, and

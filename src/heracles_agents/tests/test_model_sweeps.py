@@ -162,18 +162,27 @@ def test_missing_phase_raises(tmp_path):
         expand_model_sweeps(raw, tmp_path / "experiment.yaml")
 
 
-def test_non_openrouter_provider_raises(tmp_path):
+def test_unsupported_provider_raises(tmp_path):
     raw = sweep_experiment(provider="openai")
 
-    with pytest.raises(ValueError, match="Only provider 'openrouter' is supported"):
+    with pytest.raises(ValueError, match="Supported providers are: ollama, openrouter"):
         expand_model_sweeps(raw, tmp_path / "experiment.yaml")
 
 
-def enabled_model_count() -> int:
-    model_list_path = (
-        project_root()
-        / "examples/experiments/openrouter/model_lists/research_11.yaml"
-    )
+def test_ollama_inline_models_expand_with_ollama_client_type(tmp_path):
+    raw = sweep_experiment(provider="ollama")
+
+    expanded, context = expand_model_sweeps(raw, tmp_path / "experiment.yaml")
+
+    generated = expanded["configurations"]["agentic-cypher-qa-enabled-model"]
+    assert generated["phases"]["main"]["client"]["client_type"] == "ollama"
+    assert generated["phases"]["main"]["model_info"]["model"] == "provider/enabled"
+    assert context["result_configuration_names"][
+        "agentic-cypher-qa-enabled-model"
+    ] == "agentic-cypher-qa"
+
+
+def enabled_model_count(model_list_path: Path) -> int:
     data = yaml.safe_load(model_list_path.read_text(encoding="utf-8"))
     return sum(
         1
@@ -199,6 +208,9 @@ def test_real_openrouter_sweep_files_expand_to_enabled_valid_configurations():
         project_root() / "examples/experiments/openrouter/cypher_model_sweep.yaml",
         project_root() / "examples/experiments/openrouter/pddl_model_sweep.yaml",
     ]
+    expected_count = enabled_model_count(
+        project_root() / "examples/experiments/openrouter/model_lists/example.yaml"
+    )
 
     with (
         patch.dict(os.environ, env, clear=False),
@@ -214,7 +226,7 @@ def test_real_openrouter_sweep_files_expand_to_enabled_valid_configurations():
         loaded = [experiment_runner.load_experiment_with_context(path) for path in paths]
 
     for experiment, _context in loaded:
-        assert len(experiment.configurations) == enabled_model_count()
+        assert len(experiment.configurations) == expected_count
         assert "expanded_model_sweeps" not in experiment.metadata
 
     experiments = [experiment for experiment, _context in loaded]
@@ -241,6 +253,71 @@ def test_real_openrouter_sweep_files_expand_to_enabled_valid_configurations():
         .model_info
         .model
         == "deepseek/deepseek-v4-flash"
+    )
+
+
+def test_real_ollama_sweep_files_expand_to_enabled_valid_configurations():
+    if "agentic" not in PipelineRegistry.pipelines:
+        register_pipeline(agentic_pipeline_description)
+    if "run_cypher_query" not in ToolRegistry.tools:
+        register_tool(cypher_tool)
+
+    env = {
+        "HERACLES_AGENTS_PATH": str(project_root()),
+        "OLLAMA_HOST": "http://ollama:11434",
+        "HERACLES_NEO4J_USERNAME": "neo4j",
+        "HERACLES_NEO4J_PASSWORD": "password",
+        "HERACLES_NEO4J_URI": "neo4j://localhost:7687",
+    }
+    paths = [
+        project_root() / "examples/experiments/ollama/cypher_model_sweep.yaml",
+        project_root() / "examples/experiments/ollama/pddl_model_sweep.yaml",
+    ]
+    expected_count = enabled_model_count(
+        project_root() / "examples/experiments/ollama/model_lists/example.yaml"
+    )
+
+    with (
+        patch.dict(os.environ, env, clear=False),
+        patch(
+            "heracles_agents.experiment_definition.ExperimentConfiguration.load_questions",
+            return_value=[],
+        ),
+    ):
+        runner_path = project_root() / "examples/experiment_runner.py"
+        spec = importlib.util.spec_from_file_location("experiment_runner", runner_path)
+        experiment_runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(experiment_runner)
+        loaded = [experiment_runner.load_experiment_with_context(path) for path in paths]
+
+    for experiment, _context in loaded:
+        assert len(experiment.configurations) == expected_count
+        assert "expanded_model_sweeps" not in experiment.metadata
+
+    experiments = [experiment for experiment, _context in loaded]
+    contexts = [context for _experiment, context in loaded]
+    assert contexts[0]["result_configuration_names"][
+        "agentic-cypher-qa-gemma4:12b"
+    ] == "agentic-cypher-qa"
+    assert contexts[1]["result_configuration_names"][
+        "agentic-cypher-pddl-gemma4:12b"
+    ] == "agentic-cypher-pddl"
+
+    assert (
+        experiments[0]
+        .configurations["agentic-cypher-qa-gemma4:12b"]
+        .phases["main"]
+        .client
+        .client_type
+        == "ollama"
+    )
+    assert (
+        experiments[1]
+        .configurations["agentic-cypher-pddl-gemma4:26b"]
+        .phases["main"]
+        .model_info
+        .model
+        == "gemma4:26b"
     )
 
 

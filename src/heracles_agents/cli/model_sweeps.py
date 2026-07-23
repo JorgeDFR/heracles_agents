@@ -10,6 +10,9 @@ from typing import Any
 import yaml
 
 
+SUPPORTED_SWEEP_PROVIDERS = {"openrouter", "ollama"}
+
+
 def expand_model_sweeps(
     raw_experiment: dict[str, Any], source_path: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -40,10 +43,12 @@ def expand_model_sweeps(
             raise ValueError(f"Model sweep '{sweep_name}' must be a mapping.")
 
         provider = sweep_config.get("provider")
-        if provider != "openrouter":
+        if provider not in SUPPORTED_SWEEP_PROVIDERS:
             raise ValueError(
                 f"Model sweep '{sweep_name}' uses provider '{provider}'. "
-                "Only provider 'openrouter' is supported."
+                "Supported providers are: "
+                + ", ".join(sorted(SUPPORTED_SWEEP_PROVIDERS))
+                + "."
             )
 
         phase = _required_str(sweep_config, "phase", sweep_name)
@@ -112,7 +117,7 @@ def expand_model_sweeps(
                     f"Model sweep '{sweep_name}' phase '{phase}' client must be a "
                     "mapping."
                 )
-            client_config["client_type"] = "openrouter"
+            client_config["client_type"] = provider
 
             model_info = phase_config.setdefault("model_info", {})
             if not isinstance(model_info, dict):

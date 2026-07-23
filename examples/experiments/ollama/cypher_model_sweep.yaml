@@ -1,14 +1,24 @@
 metadata:
-  benchmark_family: openrouter_model_sweep
+  benchmark_family: ollama_model_sweep
   task: cypher
+  local_metrics:
+    enabled: true
+    target_provider: ollama
+    ollama_container_name: ollama
+    docker_host: tcp://docker-socket-proxy:2375
+    ollama_host: http://ollama:11434
+    sample_interval_seconds: 0.025
+    gpu_baseline_seconds: 5
+    unload_models_before_baseline: true
+    baseline_adjust_gpu: true
 
 model_sweeps:
-  openrouter-cypher:
-    provider: openrouter
+  ollama-cypher:
+    provider: ollama
     phase: main
     configuration_name_template: agentic-cypher-qa-{alias}
     result_configuration_name: agentic-cypher-qa
-    models_path: $HERACLES_AGENTS_PATH/examples/experiments/openrouter/model_lists/example.yaml
+    models_path: $HERACLES_AGENTS_PATH/examples/experiments/ollama/model_lists/example.yaml
     template:
       dsg_interface:
         dsg_interface_type: none
@@ -17,7 +27,7 @@ model_sweeps:
       phases:
         main:
           client:
-            client_type: openrouter
+            client_type: ollama
           model_info:
             temperature: 0.2
             seed: 123
@@ -32,7 +42,7 @@ model_sweeps:
                   dsgdb_conf:
                     dsg_interface_type: heracles
                     uri: $HERACLES_NEO4J_URI
-            tool_interface: openrouter
+            tool_interface: ollama
             max_iterations: 5
 
       questions: $HERACLES_AGENTS_PATH/examples/questions/qa_questions.yaml

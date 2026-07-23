@@ -23,7 +23,7 @@ configurations:
                     client_type: ollama
 
                 model_info:
-                    model: gemma4:26b
+                    model: gemma4:12b
                     temperature: 0.2
                     seed: 123
 
