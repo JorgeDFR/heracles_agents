@@ -7,15 +7,15 @@ from heracles_agents.llm_interface import AgentContext
 from heracles_agents.local_metrics.docker_proxy import (
     DockerContainerStatsSample,
     DockerProxyClient,
+    apply_process_memory_from_top,
     calculate_cpu_percent,
     docker_host_to_http_base_url,
     docker_stats_sample_from_dict,
+    process_memory_from_top,
     summarize_docker_samples,
 )
 from heracles_agents.local_metrics.gpu_stats import (
-    GpuProcessSample,
     GpuStatsSample,
-    parse_gpu_processes,
     parse_gpu_stats,
     summarize_gpu_samples,
 )
@@ -50,6 +50,7 @@ def test_docker_stats_parser_and_cpu_percent():
         system_cpu_usage=1000,
         online_cpus=4,
         memory_usage_bytes=10,
+        memory_cgroup_working_set_bytes=10,
         memory_limit_bytes=100,
         pids_current=2,
     )
@@ -59,6 +60,7 @@ def test_docker_stats_parser_and_cpu_percent():
         system_cpu_usage=2000,
         online_cpus=4,
         memory_usage_bytes=30,
+        memory_cgroup_working_set_bytes=30,
         memory_limit_bytes=100,
         pids_current=5,
     )
@@ -73,11 +75,15 @@ def test_docker_stats_parser_and_cpu_percent():
     assert cpu["container_online_cpus"] == 4
     assert ram["container_ram_bytes_avg"] == 20
     assert ram["container_ram_bytes_peak"] == 30
+    assert ram["container_ram_measurement_source"] == "docker_cgroup_working_set"
+    assert ram["container_process_rss_available"] is False
+    assert ram["container_ram_working_set_bytes_avg"] == 20
+    assert ram["container_ram_working_set_bytes_peak"] == 30
     assert ram["container_ram_limit_bytes"] == 100
     assert ram["container_pids_peak"] == 5
 
 
-def test_docker_stats_sample_from_api_dict():
+def test_docker_stats_sample_from_api_dict_uses_working_set_memory():
     sample = docker_stats_sample_from_dict(
         {
             "cpu_stats": {
@@ -85,7 +91,16 @@ def test_docker_stats_sample_from_api_dict():
                 "system_cpu_usage": 20,
                 "online_cpus": 8,
             },
-            "memory_stats": {"usage": 30, "limit": 40},
+            "memory_stats": {
+                "usage": 30,
+                "limit": 40,
+                "stats": {
+                    "inactive_file": 8,
+                    "file": 20,
+                    "active_file": 12,
+                    "anon": 6,
+                },
+            },
             "pids_stats": {"current": 3},
         }
     )
@@ -93,7 +108,13 @@ def test_docker_stats_sample_from_api_dict():
     assert sample.cpu_total_usage == 10
     assert sample.system_cpu_usage == 20
     assert sample.online_cpus == 8
-    assert sample.memory_usage_bytes == 30
+    assert sample.memory_usage_bytes == 22
+    assert sample.memory_cgroup_working_set_bytes == 22
+    assert sample.memory_usage_including_cache_bytes == 30
+    assert sample.memory_file_bytes == 20
+    assert sample.memory_active_file_bytes == 12
+    assert sample.memory_inactive_file_bytes == 8
+    assert sample.memory_anon_bytes == 6
     assert sample.memory_limit_bytes == 40
     assert sample.pids_current == 3
 
@@ -110,7 +131,8 @@ def test_docker_proxy_client_parses_container_stats_response():
             return (
                 b'{"cpu_stats":{"cpu_usage":{"total_usage":10},'
                 b'"system_cpu_usage":20,"online_cpus":2},'
-                b'"memory_stats":{"usage":30,"limit":40},'
+                b'"memory_stats":{"usage":30,"limit":40,'
+                b'"stats":{"inactive_file":10,"file":20,"anon":5}},'
                 b'"pids_stats":{"current":5}}'
             )
 
@@ -119,11 +141,46 @@ def test_docker_proxy_client_parses_container_stats_response():
             "ollama"
         )
 
-    assert sample.memory_usage_bytes == 30
+    assert sample.memory_usage_bytes == 20
+    assert sample.memory_usage_including_cache_bytes == 30
     assert (
         "containers/ollama/stats?stream=false&one-shot=true"
-        in urlopen.call_args.args[0].full_url
+        in urlopen.call_args_list[0].args[0].full_url
     )
+
+
+def test_docker_top_process_memory_replaces_default_ram_estimate():
+    sample = DockerContainerStatsSample(
+        timestamp_monotonic=1,
+        cpu_total_usage=None,
+        system_cpu_usage=None,
+        online_cpus=None,
+        memory_usage_bytes=100,
+        memory_cgroup_working_set_bytes=100,
+        memory_limit_bytes=1000,
+        pids_current=2,
+    )
+    top = {
+        "Titles": ["PID", "PPID", "RSS", "VSZ", "COMMAND", "COMMAND"],
+        "Processes": [
+            ["10", "1", "200", "1000", "ollama", "/bin/ollama serve"],
+            ["11", "10", "300", "2000", "llama-server", "llama-server"],
+        ],
+    }
+
+    parsed = process_memory_from_top(top)
+    apply_process_memory_from_top(sample, top)
+    _, ram = summarize_docker_samples([sample])
+
+    assert parsed["process_rss_bytes"] == 500 * 1024
+    assert parsed["process_vsz_bytes"] == 3000 * 1024
+    assert sample.memory_usage_bytes == 500 * 1024
+    assert sample.memory_cgroup_working_set_bytes == 100
+    assert ram["container_ram_bytes_peak"] == 500 * 1024
+    assert ram["container_ram_measurement_source"] == "docker_top_process_rss"
+    assert ram["container_process_rss_available"] is True
+    assert ram["container_ram_working_set_bytes_peak"] == 100
+    assert ram["container_process_rss_bytes_peak"] == 500 * 1024
 
 
 def test_gpu_csv_parsers_and_baseline_adjustment():
@@ -131,13 +188,10 @@ def test_gpu_csv_parsers_and_baseline_adjustment():
         "0, NVIDIA GPU, 1000, 16000, 50, 20, 120.5\n"
         "1, Other GPU, 200, 8000, 0, 0, N/A\n"
     )
-    processes = parse_gpu_processes("123, /bin/ollama, 900\n")
 
     assert gpu_samples[0].memory_used_mib == 1000
     assert gpu_samples[0].power_draw_w == 120.5
     assert gpu_samples[1].power_draw_w is None
-    assert processes[0].pid == 123
-    assert processes[0].used_gpu_memory_mib == 900
 
     summary = summarize_gpu_samples(
         [gpu_samples[0]],
@@ -154,15 +208,12 @@ def test_gpu_csv_parsers_and_baseline_adjustment():
             )
         ],
         sample_interval_seconds=0.5,
-        process_samples=processes,
     )
 
     assert summary["gpu_memory_used_mib_adjusted_peak"] == 600
     assert summary["gpu_utilization_percent_adjusted_avg"] == 45
     assert summary["gpu_power_w_adjusted_avg"] == 100.5
     assert summary["gpu_energy_wh_adjusted"] == round(100.5 * 0.5 / 3600.0, 9)
-    assert summary["ollama_process_vram_available"] is True
-    assert summary["ollama_process_vram_mib_peak"] == 900
 
 
 def test_ollama_response_metric_extraction_and_summary():
@@ -214,15 +265,9 @@ def test_monitor_returns_warnings_when_sources_are_unavailable():
         )
     )
 
-    with (
-        patch(
-            "heracles_agents.local_metrics.monitor.sample_gpu_stats",
-            side_effect=RuntimeError("no gpu"),
-        ),
-        patch(
-            "heracles_agents.local_metrics.monitor.sample_gpu_processes",
-            side_effect=RuntimeError("no processes"),
-        ),
+    with patch(
+        "heracles_agents.local_metrics.monitor.sample_gpu_stats",
+        side_effect=RuntimeError("no gpu"),
     ):
         measurement = monitor.start()
         measurement._sample_once()

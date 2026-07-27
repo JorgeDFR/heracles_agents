@@ -2,6 +2,7 @@ import yaml
 from rich.console import Console
 
 from heracles_agents.cli.result_reporting import (
+    _html_payload,
     load_result_file,
     load_result_files,
     render_html_report,
@@ -309,7 +310,16 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert "Topic: ${escapeHtml(q.name)}" in html
     assert "Sequences" in html
     assert "openrouter" in html
-    assert "grid-template-columns: repeat(5, minmax(0, 1fr))" in html
+    assert "providerFilter" in html
+    assert "All providers" in html
+    assert '"provider": "openrouter"' in html
+    assert '"providers": ["openrouter"]' in html
+    assert "function providerMatchesRow(row)" in html
+    assert '<summary><h2>Sources</h2></summary>' not in html
+    assert 'id="sources"' not in html
+    assert "function renderSources()" not in html
+    assert "renderSources();" not in html
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr))" in html
     assert "grid-column: 1 / -1" in html
     assert "white-space: nowrap" in html
     assert '<details class="report-section" open>' in html
@@ -332,3 +342,27 @@ def test_load_result_files_supports_multiple_yaml_files(tmp_path):
     sources = load_result_files([first, second])
 
     assert [source.path for source in sources] == [first.resolve(), second.resolve()]
+
+
+def test_html_payload_keeps_provider_filter_data_separate_from_provider_model(
+    tmp_path,
+):
+    data = sample_result_data()
+    data["metadata"]["llm_configurations"]["canary"]["phases"]["review"] = {
+        "provider": "ollama",
+        "model_identifier": "gemma3:4b",
+    }
+    source = load_result_file(write_yaml(tmp_path, "results.yaml", data))
+
+    payload = _html_payload([source])
+
+    overview = payload["overview"][0]
+    question = payload["questions"][0]
+    provider_rows = payload["provider_models"]
+
+    assert overview["providers"] == ["openrouter", "ollama"]
+    assert overview["provider"] == "openrouter, ollama"
+    assert question["providers"] == ["openrouter", "ollama"]
+    assert "main: openrouter/openai/gpt-test" in question["provider_model"]
+    assert "review: ollama/gemma3:4b" in question["provider_model"]
+    assert provider_rows[0]["configuration_provider_model"] == question["provider_model"]

@@ -542,6 +542,16 @@ def _provider_model_label(provider_models: list[ProviderModelRef]) -> str:
     return ", ".join(dict.fromkeys(labels))
 
 
+def _provider_labels(provider_models: list[ProviderModelRef]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            str(ref.provider)
+            for ref in provider_models
+            if ref.provider is not None and str(ref.provider)
+        )
+    )
+
+
 def _terminal_question_row(question: QuestionResult) -> dict[str, Any]:
     return {
         "name": question.name,
@@ -695,11 +705,15 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
             config_id = f"{source_id}:{configuration.configuration_name}"
             summary = asdict(configuration.summary)
             provider_model_label = _provider_model_label(configuration.provider_models)
+            providers = _provider_labels(configuration.provider_models)
+            provider_label = ", ".join(providers)
             overview.append(
                 {
                     "source_id": source_id,
                     "source_path": str(source.path),
                     "configuration": configuration.configuration_name,
+                    "provider": provider_label,
+                    "providers": providers,
                     "provider_model": provider_model_label,
                     "summary": summary,
                     "analysis_summary": configuration.analysis_summary,
@@ -720,6 +734,12 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "phase": ref.phase,
                         "provider": ref.provider,
                         "model_identifier": ref.model_identifier,
+                        "provider_model": "/".join(
+                            part
+                            for part in [ref.provider, ref.model_identifier]
+                            if part
+                        ),
+                        "configuration_provider_model": provider_model_label,
                     }
                 )
             for question_index, question in enumerate(configuration.questions):
@@ -729,6 +749,8 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "source_id": source_id,
                         "source_path": str(source.path),
                         "configuration": configuration.configuration_name,
+                        "provider": provider_label,
+                        "providers": providers,
                         "provider_model": question.provider_model,
                         "name": question.name,
                         "question": question.question,
@@ -926,7 +948,7 @@ _HTML_TEMPLATE = """<!doctype html>
     .wrap { padding: 0 24px 28px; }
     .controls {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 10px;
       margin-top: 14px;
       align-items: end;
@@ -1074,6 +1096,7 @@ _HTML_TEMPLATE = """<!doctype html>
     <div class="controls">
       <label>Source <select id="sourceFilter"></select></label>
       <label>Configuration <select id="configFilter"></select></label>
+      <label>Provider <select id="providerFilter"></select></label>
       <label>Provider / Model <select id="modelFilter"></select></label>
       <label>Correctness <select id="correctFilter">
         <option value="all">All</option>
@@ -1095,10 +1118,6 @@ _HTML_TEMPLATE = """<!doctype html>
     </div>
   </header>
   <main class="wrap">
-    <details class="report-section" open>
-      <summary><h2>Sources</h2></summary>
-      <div class="section-body" id="sources"></div>
-    </details>
     <details class="report-section" open>
       <summary><h2>Provider Models</h2></summary>
       <div class="section-body" id="providerModels"></div>
@@ -1124,6 +1143,7 @@ _HTML_TEMPLATE = """<!doctype html>
     const filters = {
       source: document.getElementById("sourceFilter"),
       config: document.getElementById("configFilter"),
+      provider: document.getElementById("providerFilter"),
       model: document.getElementById("modelFilter"),
       correct: document.getElementById("correctFilter"),
       search: document.getElementById("searchInput"),
@@ -1211,6 +1231,11 @@ _HTML_TEMPLATE = """<!doctype html>
     function providerLabel(row) {
       return [row.provider, row.model_identifier].filter(Boolean).join("/");
     }
+    function providerMatchesRow(row) {
+      if (filters.provider.value === "all") return true;
+      if ((row.providers || []).includes(filters.provider.value)) return true;
+      return row.provider === filters.provider.value;
+    }
     function hasMeaningfulValue(value) {
       if (value === null || value === undefined || value === "") return false;
       if (typeof value === "number") return value !== 0;
@@ -1270,6 +1295,7 @@ _HTML_TEMPLATE = """<!doctype html>
     function baseMatchesQuestion(q) {
       if (filters.source.value !== "all" && q.source_path !== filters.source.value) return false;
       if (filters.config.value !== "all" && q.configuration !== filters.config.value) return false;
+      if (!providerMatchesRow(q)) return false;
       if (filters.model.value !== "all" && q.provider_model !== filters.model.value) return false;
       return true;
     }
@@ -1283,10 +1309,7 @@ _HTML_TEMPLATE = """<!doctype html>
       const questions = filteredQuestionsForContext();
       return {
         questions,
-        sourceIds: new Set(questions.map(q => q.source_id)),
-        sourcePaths: new Set(questions.map(q => q.source_path)),
         configurations: new Set(questions.map(q => `${q.source_id}||${q.configuration}`)),
-        providerModels: new Set(questions.map(q => `${q.source_id}||${q.configuration}||${q.provider_model}`)),
       };
     }
     function renderTable(target, columns, rows, rowAttrs = () => "") {
@@ -1339,25 +1362,12 @@ _HTML_TEMPLATE = """<!doctype html>
         return value[key];
       }, row);
     }
-    function renderSources() {
-      const context = filterContext();
-      const columns = [
-        { key: "path", label: "Path" },
-        { key: "source_experiment", label: "Source Experiment", render: s => escapeHtml(s.metadata.source_experiment), sortValue: s => s.metadata.source_experiment },
-        { key: "elapsed_seconds", label: "Elapsed Seconds", render: s => number(s.metadata.elapsed_seconds), sortValue: s => s.metadata.elapsed_seconds },
-        { key: "failed_configurations", label: "Failed Configurations", render: s => escapeHtml(JSON.stringify(s.metadata.failed_configurations || {})), sortValue: s => JSON.stringify(s.metadata.failed_configurations || {}) },
-      ];
-      const rows = report.sources.filter(s =>
-        context.sourceIds.has(s.id) &&
-        rowMatchesColumns(s, columns)
-      );
-      renderTable(document.getElementById("sources"), columns, rows);
-    }
     function renderOverview() {
       const context = filterContext();
       const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
+        { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
         { key: "questions", label: "Questions", group: "quality", render: r => text(r.summary.questions), sortValue: r => r.summary.questions },
         { key: "completed_rate", label: "Completed", group: "quality", render: r => percent((r.summary.completed_rate || 0) * 100), sortValue: r => r.summary.completed_rate },
@@ -1380,6 +1390,7 @@ _HTML_TEMPLATE = """<!doctype html>
       ];
       const rows = report.overview.filter(r =>
         context.configurations.has(`${r.source_id}||${r.configuration}`) &&
+        providerMatchesRow(r) &&
         (filters.model.value === "all" || r.provider_model === filters.model.value) &&
         groupMatchesOverview(r) &&
         rowMatchesColumns(r, columns)
@@ -1397,8 +1408,13 @@ _HTML_TEMPLATE = """<!doctype html>
       ];
       const rows = report.provider_models.filter(r => {
         const label = providerLabel(r);
-        return context.providerModels.has(`${r.source_id}||${r.configuration}||${label}`) &&
-          (filters.model.value === "all" || label === filters.model.value) &&
+        return context.configurations.has(`${r.source_id}||${r.configuration}`) &&
+          providerMatchesRow(r) &&
+          (
+            filters.model.value === "all" ||
+            label === filters.model.value ||
+            r.configuration_provider_model === filters.model.value
+          ) &&
           rowMatchesColumns(r, columns);
       });
       renderTable(document.getElementById("providerModels"), columns, rows);
@@ -1407,6 +1423,7 @@ _HTML_TEMPLATE = """<!doctype html>
       const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
+        { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
         { key: "name", label: "Topic" },
         { key: "correct", label: "Correct", group: "quality", render: q => bool(q.correct) },
@@ -1495,10 +1512,10 @@ _HTML_TEMPLATE = """<!doctype html>
     function populateFilters() {
       options(filters.source, unique(report.questions.map(q => q.source_path)), "All sources");
       options(filters.config, unique(report.questions.map(q => q.configuration)), "All configurations");
+      options(filters.provider, unique(report.questions.flatMap(q => q.providers || (q.provider ? [q.provider] : []))), "All providers");
       options(filters.model, unique(report.questions.map(q => q.provider_model)), "All provider/models");
     }
     function render() {
-      renderSources();
       renderOverview();
       renderProviderModels();
       renderQuestions();

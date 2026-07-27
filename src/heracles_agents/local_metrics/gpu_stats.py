@@ -20,26 +20,11 @@ class GpuStatsSample:
     power_draw_w: float | None
 
 
-@dataclass
-class GpuProcessSample:
-    timestamp_monotonic: float
-    pid: int
-    process_name: str
-    used_gpu_memory_mib: float | None
-
-
 GPU_QUERY = [
     "nvidia-smi",
     "--query-gpu=index,name,memory.used,memory.total,utilization.gpu,utilization.memory,power.draw",
     "--format=csv,noheader,nounits",
 ]
-
-PROCESS_QUERY = [
-    "nvidia-smi",
-    "--query-compute-apps=pid,process_name,used_gpu_memory",
-    "--format=csv,noheader,nounits",
-]
-
 
 def sample_gpu_stats() -> list[GpuStatsSample]:
     output = subprocess.check_output(
@@ -49,16 +34,6 @@ def sample_gpu_stats() -> list[GpuStatsSample]:
         timeout=5,
     )
     return parse_gpu_stats(output)
-
-
-def sample_gpu_processes() -> list[GpuProcessSample]:
-    output = subprocess.check_output(
-        PROCESS_QUERY,
-        text=True,
-        stderr=subprocess.STDOUT,
-        timeout=5,
-    )
-    return parse_gpu_processes(output)
 
 
 def parse_gpu_stats(output: str) -> list[GpuStatsSample]:
@@ -85,37 +60,12 @@ def parse_gpu_stats(output: str) -> list[GpuStatsSample]:
     return samples
 
 
-def parse_gpu_processes(output: str) -> list[GpuProcessSample]:
-    timestamp = time.monotonic()
-    samples = []
-    for line in output.splitlines():
-        if not line.strip():
-            continue
-        parts = [part.strip() for part in line.split(",", 2)]
-        if len(parts) < 3:
-            continue
-        pid = _coerce_int(parts[0])
-        if pid is None:
-            continue
-        samples.append(
-            GpuProcessSample(
-                timestamp_monotonic=timestamp,
-                pid=pid,
-                process_name=parts[1],
-                used_gpu_memory_mib=_coerce_float(parts[2]),
-            )
-        )
-    return samples
-
-
 def summarize_gpu_samples(
     samples: list[GpuStatsSample],
     baseline_samples: list[GpuStatsSample],
     *,
     sample_interval_seconds: float,
-    process_samples: list[GpuProcessSample] | None = None,
 ) -> dict[str, Any]:
-    process_samples = process_samples or []
     raw_memory = _values(samples, "memory_used_mib")
     raw_util = _values(samples, "utilization_gpu_percent")
     raw_power = _values(samples, "power_draw_w")
@@ -130,12 +80,6 @@ def summarize_gpu_samples(
     adjusted_util = _adjusted_values(raw_util, baseline_util_avg)
     adjusted_power = _adjusted_values(raw_power, baseline_power_avg)
     sample_intervals = _sample_intervals(samples, sample_interval_seconds)
-    process_vram = [
-        sample.used_gpu_memory_mib
-        for sample in process_samples
-        if sample.used_gpu_memory_mib is not None
-    ]
-
     return {
         "gpu_memory_used_mib_raw_avg": _avg(raw_memory),
         "gpu_memory_used_mib_raw_peak": max(raw_memory) if raw_memory else None,
@@ -164,9 +108,6 @@ def summarize_gpu_samples(
         "gpu_effective_sample_interval_seconds_avg": _avg(sample_intervals)
         if len(samples) > 1
         else None,
-        "ollama_process_vram_available": bool(process_vram),
-        "ollama_process_vram_mib_avg": _avg(process_vram),
-        "ollama_process_vram_mib_peak": max(process_vram) if process_vram else None,
     }
 
 

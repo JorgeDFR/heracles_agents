@@ -14,9 +14,7 @@ from heracles_agents.local_metrics.docker_proxy import (
     summarize_docker_samples,
 )
 from heracles_agents.local_metrics.gpu_stats import (
-    GpuProcessSample,
     GpuStatsSample,
-    sample_gpu_processes,
     sample_gpu_stats,
     summarize_gpu_samples,
 )
@@ -48,7 +46,6 @@ class LocalResourceMeasurement:
     warnings: list[str] = field(default_factory=list)
     docker_samples: list[DockerContainerStatsSample] = field(default_factory=list)
     gpu_samples: list[GpuStatsSample] = field(default_factory=list)
-    gpu_process_samples: list[GpuProcessSample] = field(default_factory=list)
     _stop_event: threading.Event = field(default_factory=threading.Event)
     _threads: list[threading.Thread] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
@@ -58,8 +55,6 @@ class LocalResourceMeasurement:
     _docker_poll_durations: list[float] = field(default_factory=list)
     _gpu_poll_timestamps: list[float] = field(default_factory=list)
     _gpu_poll_durations: list[float] = field(default_factory=list)
-    _gpu_process_poll_timestamps: list[float] = field(default_factory=list)
-    _gpu_process_poll_durations: list[float] = field(default_factory=list)
 
     def start(self) -> None:
         if not self.config.enabled:
@@ -71,12 +66,7 @@ class LocalResourceMeasurement:
             )
         else:
             self._append_warning("Docker host is not configured.")
-        self._threads.extend(
-            [
-                threading.Thread(target=self._gpu_sample_loop, daemon=True),
-                threading.Thread(target=self._gpu_process_sample_loop, daemon=True),
-            ]
-        )
+        self._threads.append(threading.Thread(target=self._gpu_sample_loop, daemon=True))
         for thread in self._threads:
             thread.start()
 
@@ -92,7 +82,6 @@ class LocalResourceMeasurement:
         with self._lock:
             docker_samples = list(self.docker_samples)
             gpu_samples = list(self.gpu_samples)
-            process_samples = list(self.gpu_process_samples)
             telemetry = self._telemetry_summary_locked()
             warnings = list(self.warnings)
         cpu, ram = summarize_docker_samples(docker_samples)
@@ -100,7 +89,6 @@ class LocalResourceMeasurement:
             gpu_samples,
             self.baseline_gpu_samples if self.config.baseline_adjust_gpu else [],
             sample_interval_seconds=self.config.sample_interval_seconds,
-            process_samples=process_samples,
         )
         warnings.extend(self._sampling_warnings(telemetry))
         return {
@@ -132,23 +120,16 @@ class LocalResourceMeasurement:
                 "poll_timestamps": {
                     "docker_monotonic_seconds": list(self._docker_poll_timestamps),
                     "gpu_monotonic_seconds": list(self._gpu_poll_timestamps),
-                    "gpu_process_monotonic_seconds": list(
-                        self._gpu_process_poll_timestamps
-                    ),
                 },
                 "poll_durations_seconds": {
                     "docker": list(self._docker_poll_durations),
                     "gpu": list(self._gpu_poll_durations),
-                    "gpu_process": list(self._gpu_process_poll_durations),
                 },
                 "baseline_gpu_samples": [
                     asdict(sample) for sample in self.baseline_gpu_samples
                 ],
                 "docker_samples": [asdict(sample) for sample in self.docker_samples],
                 "gpu_samples": [asdict(sample) for sample in self.gpu_samples],
-                "gpu_process_samples": [
-                    asdict(sample) for sample in self.gpu_process_samples
-                ],
                 "warnings": list(dict.fromkeys(self.warnings)),
             }
 
@@ -185,25 +166,6 @@ class LocalResourceMeasurement:
                 self.gpu_samples.extend(gpu_samples)
             self._wait_for_next_poll(started)
 
-    def _gpu_process_sample_loop(self) -> None:
-        while not self._stop_event.is_set():
-            started = time.monotonic()
-            try:
-                process_samples = [
-                    sample
-                    for sample in sample_gpu_processes()
-                    if "ollama" in sample.process_name.lower()
-                ]
-            except Exception as ex:
-                self._append_warning(f"nvidia-smi process metrics unavailable: {ex}")
-                process_samples = []
-            duration = time.monotonic() - started
-            with self._lock:
-                self._gpu_process_poll_timestamps.append(started)
-                self._gpu_process_poll_durations.append(duration)
-                self.gpu_process_samples.extend(process_samples)
-            self._wait_for_next_poll(started)
-
     def _sample_once(self) -> None:
         """Collect one synchronous sample for focused unit tests."""
         started = time.monotonic()
@@ -212,16 +174,6 @@ class LocalResourceMeasurement:
         except Exception as ex:
             self._append_warning(f"nvidia-smi GPU metrics unavailable: {ex}")
             gpu_samples = []
-
-        try:
-            process_samples = [
-                sample
-                for sample in sample_gpu_processes()
-                if "ollama" in sample.process_name.lower()
-            ]
-        except Exception as ex:
-            self._append_warning(f"nvidia-smi process metrics unavailable: {ex}")
-            process_samples = []
 
         docker_sample = None
         if self.config.docker_host:
@@ -240,9 +192,7 @@ class LocalResourceMeasurement:
                 self._docker_poll_timestamps.append(started)
                 self._docker_poll_durations.append(time.monotonic() - started)
             self._gpu_poll_timestamps.append(started)
-            self._gpu_process_poll_timestamps.append(started)
             self.gpu_samples.extend(gpu_samples)
-            self.gpu_process_samples.extend(process_samples)
 
     def _wait_for_next_poll(self, started: float) -> None:
         elapsed = time.monotonic() - started
@@ -271,13 +221,6 @@ class LocalResourceMeasurement:
                 self._gpu_poll_timestamps
             ),
             "gpu_poll_duration_seconds_avg": _avg(self._gpu_poll_durations),
-            "gpu_process_poll_count": len(self._gpu_process_poll_timestamps),
-            "gpu_process_effective_interval_seconds_avg": _avg_intervals(
-                self._gpu_process_poll_timestamps
-            ),
-            "gpu_process_poll_duration_seconds_avg": _avg(
-                self._gpu_process_poll_durations
-            ),
         }
 
     def _sampling_warnings(self, telemetry: dict[str, Any]) -> list[str]:
@@ -286,7 +229,6 @@ class LocalResourceMeasurement:
         for label, key in [
             ("Docker", "docker_effective_interval_seconds_avg"),
             ("GPU", "gpu_effective_interval_seconds_avg"),
-            ("GPU process", "gpu_process_effective_interval_seconds_avg"),
         ]:
             effective = telemetry.get(key)
             if (

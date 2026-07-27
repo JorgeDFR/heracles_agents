@@ -1,0 +1,113 @@
+events:
+- name: baseline_started
+  label: Unload models / GPU baseline start
+  short_label: baseline start
+  kind: baseline
+  timestamp_monotonic: 12142.448301
+  relative_seconds: -5.001928
+  wall_time: '2026-07-27T13:04:05.892330+00:00'
+  source_path: null
+- name: baseline_finished
+  label: GPU baseline finished
+  short_label: baseline done
+  kind: baseline
+  timestamp_monotonic: 12147.450204
+  relative_seconds: -2.5e-05
+  wall_time: '2026-07-27T13:04:10.894235+00:00'
+  source_path: null
+- name: external_measurement_started
+  label: External measurement start
+  short_label: external start
+  kind: external
+  timestamp_monotonic: 12147.450229
+  relative_seconds: 0.0
+  wall_time: '2026-07-27T13:04:10.894246+00:00'
+  source_path: null
+- name: pipeline_started
+  label: Pipeline start
+  short_label: pipeline start
+  kind: pipeline
+  timestamp_monotonic: 12147.450972
+  relative_seconds: 0.000743
+  wall_time: '2026-07-27T13:04:10.894990+00:00'
+  source_path: null
+- name: configuration_baseline_started:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b baseline samples start
+  short_label: agentic-cypher-qa-gemma-4-12b baseline
+  kind: configuration_baseline
+  timestamp_monotonic: 12148.753353
+  relative_seconds: 1.303124
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_baseline_finished:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b baseline samples finish
+  short_label: agentic-cypher-qa-gemma-4-12b baseline done
+  kind: configuration_baseline
+  timestamp_monotonic: 12153.721266
+  relative_seconds: 6.271037
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_started:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b measurement start
+  short_label: agentic-cypher-qa-gemma-4-12b start
+  kind: configuration
+  timestamp_monotonic: 12153.722539
+  relative_seconds: 6.27231
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_finished:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b measurement finish
+  short_label: agentic-cypher-qa-gemma-4-12b finish
+  kind: configuration
+  timestamp_monotonic: 12293.486542
+  relative_seconds: 146.036313
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_baseline_started:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b baseline samples start
+  short_label: agentic-cypher-qa-gemma-4-26b baseline
+  kind: configuration_baseline
+  timestamp_monotonic: 12296.508493
+  relative_seconds: 149.058264
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: configuration_baseline_finished:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b baseline samples finish
+  short_label: agentic-cypher-qa-gemma-4-26b baseline done
+  kind: configuration_baseline
+  timestamp_monotonic: 12301.488891
+  relative_seconds: 154.038662
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: configuration_started:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b measurement start
+  short_label: agentic-cypher-qa-gemma-4-26b start
+  kind: configuration
+  timestamp_monotonic: 12301.493336
+  relative_seconds: 154.043107
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: configuration_finished:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b measurement finish
+  short_label: agentic-cypher-qa-gemma-4-26b finish
+  kind: configuration
+  timestamp_monotonic: 12350.035955
+  relative_seconds: 202.585726
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: pipeline_finished
+  label: Pipeline finish
+  short_label: pipeline finish
+  kind: pipeline
+  timestamp_monotonic: 12351.470369
+  relative_seconds: 204.02014
+  wall_time: '2026-07-27T13:07:34.914403+00:00'
+  source_path: null
+- name: external_measurement_stopped
+  label: External measurement stop
+  short_label: external stop
+  kind: external
+  timestamp_monotonic: 12351.593758
+  relative_seconds: 204.143529
+  wall_time: '2026-07-27T13:07:35.037765+00:00'
+  source_path: null

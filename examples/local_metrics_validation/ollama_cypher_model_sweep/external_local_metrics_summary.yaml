@@ -1,0 +1,209 @@
+measurement_scope: ollama_container
+ollama_container_name: ollama
+sample_interval_seconds: 0.025
+baseline_seconds: 5.0
+baseline_adjusted: false
+telemetry:
+  requested_sample_interval_seconds: 0.025
+  measurement_duration_seconds: 204.025379
+  docker_poll_count: 8121
+  docker_effective_interval_seconds_avg: 0.025123
+  docker_poll_duration_seconds_avg: 0.009342
+  gpu_poll_count: 7736
+  gpu_effective_interval_seconds_avg: 0.026374
+  gpu_poll_duration_seconds_avg: 0.025354
+cpu:
+  container_cpu_percent_avg: 132.204553
+  container_cpu_percent_peak: 731.625366
+  container_cpu_percent_normalized_avg: 8.262785
+  container_cpu_percent_normalized_peak: 45.726585
+  container_online_cpus: 16
+  sample_count: 8121
+ram:
+  container_ram_measurement_source: docker_top_process_rss
+  container_process_rss_available: true
+  container_ram_bytes_avg: 4122112493
+  container_ram_bytes_peak: 18457399296
+  container_ram_working_set_bytes_avg: 16492994328
+  container_ram_working_set_bytes_peak: 19367010304
+  container_ram_cgroup_working_set_bytes_avg: 16492994328
+  container_ram_cgroup_working_set_bytes_peak: 19367010304
+  container_ram_including_cache_bytes_avg: 22970330925
+  container_ram_including_cache_bytes_peak: 24658366464
+  container_ram_file_bytes_avg: 20153059480
+  container_ram_file_bytes_peak: 22344720384
+  container_ram_anon_bytes_avg: 2791574239
+  container_ram_anon_bytes_peak: 5118124032
+  container_process_rss_bytes_avg: 4122112493
+  container_process_rss_bytes_peak: 18457399296
+  container_process_vsz_bytes_avg: 62491404458
+  container_process_vsz_bytes_peak: 107974250496
+  container_process_count_peak: 2
+  container_ram_limit_bytes: 33179557888
+  container_pids_peak: 52
+  sample_count: 8121
+gpu:
+  gpu_memory_used_mib_raw_avg: 9135.088418
+  gpu_memory_used_mib_raw_peak: 14987.0
+  gpu_memory_used_mib_baseline_avg: null
+  gpu_memory_used_mib_adjusted_avg: null
+  gpu_memory_used_mib_adjusted_peak: null
+  gpu_utilization_percent_raw_avg: 64.785677
+  gpu_utilization_percent_baseline_avg: null
+  gpu_utilization_percent_adjusted_avg: null
+  gpu_power_w_raw_avg: 114.197033
+  gpu_power_w_baseline_avg: null
+  gpu_power_w_adjusted_avg: null
+  gpu_energy_wh_adjusted: null
+  gpu_sample_count: 7736
+  gpu_effective_sample_interval_seconds_avg: 0.026374
+warnings: []
+validation_window:
+  pre_pipeline_seconds: 0.0
+  post_pipeline_seconds: 0.0
+  baseline_started_monotonic: 12142.448301
+  baseline_started_at: '2026-07-27T13:04:05.892330+00:00'
+  baseline_finished_monotonic: 12147.450204
+  baseline_finished_at: '2026-07-27T13:04:10.894235+00:00'
+  external_measurement_started_at: '2026-07-27T13:04:10.894246+00:00'
+  external_measurement_started_monotonic: 12147.450229
+  pipeline_command_started_at: '2026-07-27T13:04:10.894990+00:00'
+  pipeline_command_started_monotonic: 12147.450972
+  pipeline_command_finished_monotonic: 12351.470369
+  pipeline_command_finished_at: '2026-07-27T13:07:34.914403+00:00'
+  pipeline_runtime_seconds: 204.019397
+  external_measurement_stopped_at: '2026-07-27T13:07:35.037765+00:00'
+  external_measurement_stopped_monotonic: 12351.593758
+  external_measurement_duration_seconds: 204.143529
+pipeline_command:
+- python
+- examples/experiment_runner.py
+- examples/experiments/ollama/cypher_model_sweep.yaml
+- --debug
+- --no-display
+- --output-dir
+- examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results
+pipeline_return_code: 0
+pipeline_error: null
+measurement_notes:
+- Docker CPU percentages require at least two container stats samples.
+- The requested sampling interval may not be achievable because Docker stats and nvidia-smi
+  calls have nontrivial overhead.
+- RAM uses the Ollama container process RSS from Docker top when available. Cgroup
+  working-set and cgroup usage-including-cache fields are retained because memory-mapped
+  model files can otherwise make Docker memory accounting misleading.
+- Ollama response runtime/token metrics cannot be independently sampled externally;
+  compare them from pipeline result/debug files instead.
+event_timeline:
+- name: baseline_started
+  label: Unload models / GPU baseline start
+  short_label: baseline start
+  kind: baseline
+  timestamp_monotonic: 12142.448301
+  relative_seconds: -5.001928
+  wall_time: '2026-07-27T13:04:05.892330+00:00'
+  source_path: null
+- name: baseline_finished
+  label: GPU baseline finished
+  short_label: baseline done
+  kind: baseline
+  timestamp_monotonic: 12147.450204
+  relative_seconds: -2.5e-05
+  wall_time: '2026-07-27T13:04:10.894235+00:00'
+  source_path: null
+- name: external_measurement_started
+  label: External measurement start
+  short_label: external start
+  kind: external
+  timestamp_monotonic: 12147.450229
+  relative_seconds: 0.0
+  wall_time: '2026-07-27T13:04:10.894246+00:00'
+  source_path: null
+- name: pipeline_started
+  label: Pipeline start
+  short_label: pipeline start
+  kind: pipeline
+  timestamp_monotonic: 12147.450972
+  relative_seconds: 0.000743
+  wall_time: '2026-07-27T13:04:10.894990+00:00'
+  source_path: null
+- name: configuration_baseline_started:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b baseline samples start
+  short_label: agentic-cypher-qa-gemma-4-12b baseline
+  kind: configuration_baseline
+  timestamp_monotonic: 12148.753353
+  relative_seconds: 1.303124
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_baseline_finished:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b baseline samples finish
+  short_label: agentic-cypher-qa-gemma-4-12b baseline done
+  kind: configuration_baseline
+  timestamp_monotonic: 12153.721266
+  relative_seconds: 6.271037
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_started:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b measurement start
+  short_label: agentic-cypher-qa-gemma-4-12b start
+  kind: configuration
+  timestamp_monotonic: 12153.722539
+  relative_seconds: 6.27231
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_finished:agentic-cypher-qa-gemma-4-12b
+  label: agentic-cypher-qa-gemma-4-12b measurement finish
+  short_label: agentic-cypher-qa-gemma-4-12b finish
+  kind: configuration
+  timestamp_monotonic: 12293.486542
+  relative_seconds: 146.036313
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-12b_agentic-cypher-qa-gemma-4-12b_local_metrics_samples.yaml
+- name: configuration_baseline_started:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b baseline samples start
+  short_label: agentic-cypher-qa-gemma-4-26b baseline
+  kind: configuration_baseline
+  timestamp_monotonic: 12296.508493
+  relative_seconds: 149.058264
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: configuration_baseline_finished:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b baseline samples finish
+  short_label: agentic-cypher-qa-gemma-4-26b baseline done
+  kind: configuration_baseline
+  timestamp_monotonic: 12301.488891
+  relative_seconds: 154.038662
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: configuration_started:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b measurement start
+  short_label: agentic-cypher-qa-gemma-4-26b start
+  kind: configuration
+  timestamp_monotonic: 12301.493336
+  relative_seconds: 154.043107
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: configuration_finished:agentic-cypher-qa-gemma-4-26b
+  label: agentic-cypher-qa-gemma-4-26b measurement finish
+  short_label: agentic-cypher-qa-gemma-4-26b finish
+  kind: configuration
+  timestamp_monotonic: 12350.035955
+  relative_seconds: 202.585726
+  wall_time: null
+  source_path: /home/coder/workspace/heracles_devel/heracles_agents/examples/local_metrics_validation/ollama_cypher_model_sweep/pipeline_results/ollama/cypher_model_sweep/agentic-cypher-qa-gemma-4-26b_agentic-cypher-qa-gemma-4-26b_local_metrics_samples.yaml
+- name: pipeline_finished
+  label: Pipeline finish
+  short_label: pipeline finish
+  kind: pipeline
+  timestamp_monotonic: 12351.470369
+  relative_seconds: 204.02014
+  wall_time: '2026-07-27T13:07:34.914403+00:00'
+  source_path: null
+- name: external_measurement_stopped
+  label: External measurement stop
+  short_label: external stop
+  kind: external
+  timestamp_monotonic: 12351.593758
+  relative_seconds: 204.143529
+  wall_time: '2026-07-27T13:07:35.037765+00:00'
+  source_path: null
