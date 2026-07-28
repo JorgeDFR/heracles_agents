@@ -12,7 +12,7 @@ setup(
     package_data={"": ["resources/*"]},
     install_requires=[
         "pydantic-settings",
-        "plum-dispatch >= v2.7.0",
+        "plum-dispatch>=2.7.0",
         "lark",
         "tiktoken",
         "typer",
