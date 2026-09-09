@@ -212,7 +212,9 @@ def test_load_result_file_supports_single_analyzed_questions_shape(tmp_path):
 
 
 def test_summarize_configuration_counts_core_metrics_and_optional_metrics(tmp_path):
-    source = load_result_file(write_yaml(tmp_path, "results.yaml", sample_result_data()))
+    source = load_result_file(
+        write_yaml(tmp_path, "results.yaml", sample_result_data())
+    )
 
     summary = summarize_configuration(source.configurations[0].questions)
 
@@ -241,7 +243,9 @@ def test_summarize_configuration_counts_core_metrics_and_optional_metrics(tmp_pa
 def test_terminal_summary_default_columns_include_question_answer_and_exclude_details(
     tmp_path,
 ):
-    source = load_result_file(write_yaml(tmp_path, "results.yaml", sample_result_data()))
+    source = load_result_file(
+        write_yaml(tmp_path, "results.yaml", sample_result_data())
+    )
     console = Console(record=True, width=240)
 
     render_terminal_summary([source], console=console)
@@ -258,7 +262,9 @@ def test_terminal_summary_default_columns_include_question_answer_and_exclude_de
 
 
 def test_terminal_summary_can_include_sequence_count(tmp_path):
-    source = load_result_file(write_yaml(tmp_path, "results.yaml", sample_result_data()))
+    source = load_result_file(
+        write_yaml(tmp_path, "results.yaml", sample_result_data())
+    )
     console = Console(record=True, width=240)
 
     render_terminal_summary([source], console=console, show_sequences=True)
@@ -282,18 +288,20 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
 
     assert "Heracles Experiment Results" in html
     assert 'label: "Average End-to-End Latency"' in html
+    assert 'label: "Cost per Success"' in html
     assert "Latency (s)" in html
     assert 'label: "End-to-End Latency"' in html
     assert 'label: "End-to-End Latency (s)"' not in html
     assert "function seconds(value)" in html
     assert "function percent(value)" in html
     assert "function compareSortValues" in html
-    assert "function rowMatchesColumns" in html
-    assert "function groupMatchesOverview" in html
-    assert "function hasOverviewCost" in html
-    assert "function hasOverviewLocalResources" in html
+    assert "function applyColumnFilters(table)" in html
     assert "hasMeaningfulValue" in html
-    assert 'placeholder="Table values"' in html
+    assert 'class="column-filter"' in html
+    assert 'class="filter-row"' in html
+    assert 'data-sort-index="${index}"' in html
+    assert "sort-asc" in html
+    assert "sort-desc" in html
     assert "Cost USD" in html
     assert "Local Resources" in html
     assert 'label: "CPU Avg"' in html
@@ -308,31 +316,137 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert '"local_resources_summary"' in html
     assert 'label: "Topic"' in html
     assert "Topic: ${escapeHtml(q.name)}" in html
-    assert "Sequences" in html
+    assert "Messages" in html
+    assert 'class="message-card"' in html
+    assert 'class="message-role"' in html
+    assert 'class="sequence-group"' in html
+    assert "Raw Response" in html
+    assert "Parsed Response" not in html
     assert "openrouter" in html
-    assert "providerFilter" in html
-    assert "All providers" in html
     assert '"provider": "openrouter"' in html
     assert '"providers": ["openrouter"]' in html
-    assert "function providerMatchesRow(row)" in html
-    assert '<summary><h2>Sources</h2></summary>' not in html
-    assert 'id="sources"' not in html
-    assert "function renderSources()" not in html
-    assert "renderSources();" not in html
-    assert "grid-template-columns: repeat(6, minmax(0, 1fr))" in html
-    assert "grid-column: 1 / -1" in html
+    assert html.index(">Provider Models</button>") < html.index(">Overview</button>")
+    assert html.index(">Overview</button>") < html.index(">Questions</button>")
+    assert html.index(">Questions</button>") < html.index(">Artifacts</button>")
+    assert 'id="providers-tab" class="tab-panel active"' in html
+    assert 'id="overview-tab" class="tab-panel"' in html
+    assert 'id="questions-tab" class="tab-panel"' in html
+    assert 'id="artifacts-tab" class="tab-panel"' in html
+    assert "function selectTab(button)" in html
+    assert "function renderArtifacts()" in html
+    assert 'class="metric-controls" aria-label="Metric columns" hidden' in html
+    assert '!["overview-tab", "questions-tab"].includes(panelId)' in html
+    assert "function rowsForActiveMetricGroup(rows, tableKind)" in html
+    assert 'rowsForActiveMetricGroup(report.overview, "overview")' in html
+    assert 'rowsForActiveMetricGroup(report.questions, "questions")' in html
+    assert "sourceFilter" not in html
+    assert "providerFilter" not in html
+    assert "searchInput" not in html
     assert "white-space: nowrap" in html
-    assert '<details class="report-section" open>' in html
-    assert "function filterContext()" in html
-    assert "const context = filterContext();" in html
+    assert "report-section" not in html
     assert "top: 100px" not in html
-    assert "setExclusiveGroupSelection" in html
-    assert 'data-group="quality" checked' in html
-    assert 'data-group="tokens" checked' not in html
-    assert "<dt>Parsed</dt>" not in html
+    assert 'type="radio" name="metric-group" data-group="quality" checked' in html
+    assert 'type="radio" name="metric-group" data-group="tokens"' in html
+    assert 'class="status-pill status-good"' in html
+    assert 'class="status-pill status-bad"' in html
+    assert "h2 { font-size: 20px; margin: 0 0 12px; }" in html
     assert "parsed response" in html
     assert "<script>alert('x')</script>" not in html
     assert "\\u003cscript>alert('x')\\u003c/script>" in html
+
+
+def test_html_payload_structures_saved_responses_as_messages(tmp_path):
+    data = sample_result_data()
+    responses = data["experiment_configurations"]["canary"]["analyzed_questions"][0][
+        "sequences"
+    ][0]["responses"]
+    responses[:] = [
+        {
+            "raw_response": repr(
+                {
+                    "role": "assistant",
+                    "content": "Checking the graph",
+                    "tool_calls": [
+                        {
+                            "name": "run_cypher_query",
+                            "arguments": {"cypher_string": "MATCH (n) RETURN n"},
+                        }
+                    ],
+                    "request_id": "request-1",
+                }
+            ),
+            "parsed_response": "Checking the graph",
+        },
+        {
+            "raw_response": repr(
+                {
+                    "role": "tool",
+                    "tool_name": "run_cypher_query",
+                    "content": [{"n": "O1"}],
+                }
+            ),
+            "parsed_response": "tool: [{'n': 'O1'}]",
+        },
+        {
+            "raw_response": (
+                "role='assistant' content='' thinking=None images=None "
+                "tool_name=None tool_calls=[ToolCall(function=Function("
+                "name='run_cypher_query', arguments={'cypher_string': "
+                "'MATCH (n) RETURN n'}))]"
+            ),
+            "parsed_response": "Preparing the query",
+        },
+    ]
+    source = load_result_file(write_yaml(tmp_path, "results.yaml", data))
+
+    messages = _html_payload([source])["questions"][0]["sequences"][0]["messages"]
+
+    assert messages[0]["role"] == "assistant"
+    assert messages[0]["content"] == "Checking the graph"
+    assert messages[0]["tool_calls"][0]["name"] == "run_cypher_query"
+    assert messages[0]["metadata"] == {"request_id": "request-1"}
+    assert messages[1]["role"] == "tool"
+    assert messages[1]["tool_name"] == "run_cypher_query"
+    assert messages[1]["content"] == [{"n": "O1"}]
+    assert messages[2]["role"] == "assistant"
+    assert messages[2]["content"] == "Preparing the query"
+    assert messages[2]["tool_calls"] == [
+        {
+            "function": {
+                "name": "run_cypher_query",
+                "arguments": {"cypher_string": "MATCH (n) RETURN n"},
+            }
+        }
+    ]
+
+
+def test_html_payload_collects_result_and_referenced_artifacts(tmp_path):
+    prompt_path = write_yaml(tmp_path, "prompt.yaml", {"system": "Be concise."})
+    experiment_path = write_yaml(
+        tmp_path,
+        "experiment.yaml",
+        {"template": {"base_prompt": str(prompt_path)}},
+    )
+    data = sample_result_data()
+    data["metadata"]["source_experiment"] = str(experiment_path)
+    result_path = write_yaml(tmp_path, "results.yaml", data)
+    source = load_result_file(result_path)
+
+    artifacts = _html_payload([source])["artifacts"]
+
+    assert [artifact["artifact"] for artifact in artifacts] == [
+        "result",
+        "source_experiment",
+        "base_prompt",
+    ]
+    assert [artifact["path"] for artifact in artifacts] == [
+        str(result_path),
+        str(experiment_path),
+        str(prompt_path),
+    ]
+    assert all(artifact["exists"] for artifact in artifacts)
+    assert all(artifact["bytes"] > 0 for artifact in artifacts)
+    assert all(artifact["modified_at"] for artifact in artifacts)
 
 
 def test_load_result_files_supports_multiple_yaml_files(tmp_path):
@@ -365,4 +479,6 @@ def test_html_payload_keeps_provider_filter_data_separate_from_provider_model(
     assert question["providers"] == ["openrouter", "ollama"]
     assert "main: openrouter/openai/gpt-test" in question["provider_model"]
     assert "review: ollama/gemma3:4b" in question["provider_model"]
-    assert provider_rows[0]["configuration_provider_model"] == question["provider_model"]
+    assert (
+        provider_rows[0]["configuration_provider_model"] == question["provider_model"]
+    )

@@ -48,7 +48,7 @@ questions:
   - uid: 49B
     name: Grab bike, avoid region, visit hallways
     question: Grab the bicycle, or visit all the hallways without going into the lounge
-    solution: (or (holding O43) (and (visited-room R2) (visited-room R3) (visited-room R4) (visited-room R5) (not (visited-room R1))))
+    solution: (or (holding O43) (and (visited-region R2) (visited-region R3) (visited-region R4) (visited-region R5) (not (visited-region R1))))
     correctness_comparator:
       comparison_type: PDDL
       relation: equal

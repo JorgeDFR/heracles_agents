@@ -2,18 +2,32 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import os
+import re
 import webbrowser
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import yaml
 from rich.console import Console
 from rich.table import Table
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_ARTIFACT_FILE_SUFFIXES = {
+    ".csv",
+    ".json",
+    ".jsonl",
+    ".pddl",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 
 TERMINAL_QUESTION_COLUMNS = {
     "Topic": "name",
@@ -375,7 +389,9 @@ def render_terminal_summary(
             continue
 
         for configuration in source.configurations:
-            console.rule(f"[bold yellow]Configuration: {configuration.configuration_name}")
+            console.rule(
+                f"[bold yellow]Configuration: {configuration.configuration_name}"
+            )
             rows = [_terminal_question_row(q) for q in configuration.questions]
             if not summary_only:
                 console.print(
@@ -601,7 +617,9 @@ def _total_avg(total: int, avg: float | None) -> str:
 def _metric_values(questions: list[QuestionResult], key: str) -> list[float]:
     return [
         value
-        for value in (_coerce_float(question.latency.get(key)) for question in questions)
+        for value in (
+            _coerce_float(question.latency.get(key)) for question in questions
+        )
         if value is not None
     ]
 
@@ -686,6 +704,183 @@ def _as_dict_or_none(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _structured_sequences(sequences: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize saved agent responses for the HTML conversation view.
+
+    Historical result files store provider messages as ``repr`` strings.  Keep
+    those strings available for inspection, but recover common dictionary
+    messages so the report can render roles, content, tool calls, and metadata
+    as separate fields.
+    """
+
+    structured = []
+    for sequence in sequences:
+        if not isinstance(sequence, dict):
+            continue
+        messages = [
+            _structured_message(response, index)
+            for index, response in enumerate(sequence.get("responses") or [], start=1)
+            if isinstance(response, dict)
+        ]
+        structured.append(
+            {
+                "description": _as_text(sequence.get("description") or "Sequence"),
+                "messages": messages,
+            }
+        )
+    return structured
+
+
+def _structured_message(response: dict[str, Any], index: int) -> dict[str, Any]:
+    raw_response = response.get("raw_response")
+    parsed_response = response.get("parsed_response")
+    raw_message = _literal_message(raw_response)
+
+    role = None
+    content = None
+    tool_name = None
+    tool_calls = None
+    metadata = {}
+    if isinstance(raw_message, dict):
+        role = raw_message.get("role")
+        message_type = raw_message.get("type")
+        tool_name = raw_message.get("tool_name") or raw_message.get("name")
+        tool_calls = raw_message.get("tool_calls")
+        content = raw_message.get("content")
+        if message_type == "function_call_output":
+            role = role or "tool"
+            content = raw_message.get("output", content)
+        elif "toolResult" in raw_message:
+            role = role or "tool"
+            content = raw_message.get("toolResult")
+        elif message_type in {"function_call", "custom_tool_call"}:
+            role = role or "assistant"
+        metadata = {
+            key: value
+            for key, value in raw_message.items()
+            if key
+            not in {
+                "role",
+                "content",
+                "output",
+                "tool_calls",
+                "toolResult",
+                "tool_name",
+                "name",
+            }
+            and value not in (None, "", [], {})
+        }
+
+    parsed_text = _as_optional_text(parsed_response)
+    if role is None:
+        role, inferred_content = _role_and_content_from_parsed(parsed_text, index)
+        content = content if content not in (None, "") else inferred_content
+    if content in (None, ""):
+        content = parsed_text if parsed_text not in (None, "") else raw_response
+
+    return {
+        "role": _as_text(role or f"Message {index}"),
+        "content": content,
+        "tool_name": tool_name,
+        "tool_calls": tool_calls,
+        "parsed_response": parsed_text,
+        "metadata": metadata or None,
+        "raw_response": raw_response,
+    }
+
+
+def _literal_message(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        parsed = ast.literal_eval(value)
+    except (SyntaxError, ValueError):
+        return _model_repr_message(value)
+    return parsed
+
+
+_MODEL_REPR_PATTERN = re.compile(
+    r"^role=(?P<role>.+?) content=(?P<content>.+?) thinking=(?P<thinking>.+?) "
+    r"images=(?P<images>.+?) tool_name=(?P<tool_name>.+?) "
+    r"tool_calls=(?P<tool_calls>.+)$",
+    re.DOTALL,
+)
+
+
+def _model_repr_message(value: str) -> dict[str, Any] | None:
+    """Recover fields from saved Pydantic-style model response reprs."""
+
+    match = _MODEL_REPR_PATTERN.match(value)
+    if match is None:
+        return None
+
+    message = {
+        key: _literal_repr_value(match.group(key))
+        for key in ("role", "content", "thinking", "images", "tool_name")
+    }
+    message["tool_calls"] = _tool_calls_from_repr(match.group("tool_calls"))
+    return message
+
+
+def _literal_repr_value(value: str) -> Any:
+    try:
+        return ast.literal_eval(value)
+    except (SyntaxError, ValueError):
+        return value
+
+
+def _tool_calls_from_repr(value: str) -> Any:
+    literal_value = _literal_repr_value(value)
+    if not isinstance(literal_value, str):
+        return literal_value
+
+    try:
+        tree = ast.parse(value, mode="eval")
+    except SyntaxError:
+        return value
+
+    calls = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != "Function":
+            continue
+        function = {}
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                continue
+            try:
+                function[keyword.arg] = ast.literal_eval(keyword.value)
+            except (ValueError, TypeError):
+                continue
+        if function:
+            calls.append({"function": function})
+    return calls or value
+
+
+def _role_and_content_from_parsed(
+    parsed_response: str | None,
+    index: int,
+) -> tuple[str, str | None]:
+    if not parsed_response:
+        return f"Message {index}", parsed_response
+    prefix, separator, remainder = parsed_response.partition(":")
+    normalized = prefix.strip().lower()
+    if separator and normalized in {
+        "user",
+        "assistant",
+        "system",
+        "developer",
+        "tool",
+    }:
+        return normalized, remainder.lstrip()
+    if normalized in {"function result", "tool result"}:
+        return "tool", remainder.lstrip()
+    if parsed_response.lstrip().lower().startswith("function call:"):
+        return "assistant / tool call", parsed_response
+    return "assistant", parsed_response
+
+
 def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
     source_payload = []
     overview = []
@@ -767,7 +962,7 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "local_resources": question.local_resources,
                         "configuration_local_resources": configuration.local_resources,
                         "n_sequences": question.n_sequences,
-                        "sequences": question.sequences,
+                        "sequences": _structured_sequences(question.sequences),
                     }
                 )
 
@@ -776,7 +971,109 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
         "overview": overview,
         "provider_models": provider_models,
         "questions": questions,
+        "artifacts": _artifact_payload(sources),
     }
+
+
+def _artifact_payload(sources: Sequence[ResultSource]) -> list[dict[str, Any]]:
+    artifacts = []
+    seen_paths: set[Path] = set()
+
+    def add_artifact(
+        artifact: str,
+        value: str | Path,
+        *,
+        base_dir: Path | None = None,
+        scan_references: bool = False,
+    ) -> None:
+        path = _resolve_artifact_path(value, base_dir=base_dir)
+        if path in seen_paths:
+            return
+        seen_paths.add(path)
+        artifacts.append({"artifact": artifact, **_artifact_file_info(path)})
+
+        if (
+            not scan_references
+            or not path.is_file()
+            or path.suffix.lower()
+            not in {
+                ".yaml",
+                ".yml",
+            }
+        ):
+            return
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            return
+        for reference_name, reference_value in _iter_artifact_references(document):
+            add_artifact(
+                reference_name,
+                reference_value,
+                base_dir=path.parent,
+                scan_references=True,
+            )
+
+    for source in sources:
+        add_artifact("result", source.path)
+        source_experiment = source.metadata.get("source_experiment")
+        if source_experiment:
+            add_artifact(
+                "source_experiment",
+                str(source_experiment),
+                scan_references=True,
+            )
+    return artifacts
+
+
+def _iter_artifact_references(value: Any, key: str = "file"):
+    if isinstance(value, dict):
+        for child_key, child_value in value.items():
+            yield from _iter_artifact_references(child_value, str(child_key))
+    elif isinstance(value, list):
+        for child_value in value:
+            yield from _iter_artifact_references(child_value, key)
+    elif isinstance(value, str):
+        suffix = Path(value.replace("${HERACLES_AGENTS_PATH}", "")).suffix.lower()
+        if suffix in _ARTIFACT_FILE_SUFFIXES:
+            yield key, value
+
+
+def _resolve_artifact_path(value: str | Path, *, base_dir: Path | None = None) -> Path:
+    expanded = str(value).replace("${HERACLES_AGENTS_PATH}", str(_PROJECT_ROOT))
+    expanded = expanded.replace("$HERACLES_AGENTS_PATH", str(_PROJECT_ROOT))
+    candidate = Path(os.path.expandvars(expanded)).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+
+    candidates = []
+    if base_dir is not None:
+        candidates.append(base_dir / candidate)
+    candidates.extend((Path.cwd() / candidate, _PROJECT_ROOT / candidate))
+    return next(
+        (path.resolve() for path in candidates if path.exists()),
+        candidates[0].resolve(),
+    )
+
+
+def _artifact_file_info(path: Path) -> dict[str, Any]:
+    try:
+        display_path = str(path.relative_to(_PROJECT_ROOT))
+    except ValueError:
+        display_path = str(path)
+    info: dict[str, Any] = {"path": display_path, "exists": path.is_file()}
+    if path.is_file():
+        stat = path.stat()
+        info.update(
+            {
+                "bytes": stat.st_size,
+                "modified_at": datetime.fromtimestamp(
+                    stat.st_mtime,
+                    timezone.utc,
+                ).isoformat(),
+            }
+        )
+    return info
 
 
 def _summarize_local_resources(
@@ -922,10 +1219,14 @@ _HTML_TEMPLATE = """<!doctype html>
       --line: #d8dde6;
       --text: #1d2430;
       --muted: #667085;
-      --accent: #1f6feb;
+      --accent: #0f766e;
+      --accent-soft: #e1f3f1;
       --good: #117a37;
+      --good-bg: #e7f6ec;
       --bad: #b42318;
+      --bad-bg: #fde7e4;
       --warn: #a15c00;
+      --warn-bg: #fff3d6;
     }
     * { box-sizing: border-box; }
     body {
@@ -934,83 +1235,71 @@ _HTML_TEMPLATE = """<!doctype html>
       color: var(--text);
       font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    header {
-      padding: 18px 24px 10px;
-      border-bottom: 1px solid var(--line);
-      background: var(--panel);
+    .page-header {
       position: sticky;
       top: 0;
-      z-index: 3;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
     }
+    header { padding: 18px 24px 10px; }
     h1 { font-size: 22px; margin: 0 0 4px; }
-    h2 { font-size: 16px; margin: 24px 0 10px; }
+    h2 { font-size: 20px; margin: 0 0 12px; }
+    h3 { font-size: 15px; margin: 0 0 12px; }
     .muted { color: var(--muted); }
-    .wrap { padding: 0 24px 28px; }
-    .controls {
-      display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 14px;
-      align-items: end;
+    .wrap { padding: 22px 24px 28px; }
+    .report-nav {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 24px;
     }
-    label {
-      display: grid;
-      gap: 4px;
-      min-width: 0;
-      font-size: 12px;
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+    .tab-button {
+      appearance: none;
+      border: 1px solid transparent;
+      border-bottom: 0;
+      background: transparent;
       color: var(--muted);
-    }
-    select, input {
-      width: 100%;
-      max-width: 100%;
-      min-height: 34px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-      color: var(--text);
-      padding: 6px 8px;
+      padding: 10px 12px;
       font: inherit;
+      cursor: pointer;
     }
-    .toggles {
+    .tab-button.active {
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-color: var(--line);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .metric-controls {
       display: flex;
       flex-wrap: wrap;
+      justify-content: flex-end;
       gap: 12px;
-      align-items: end;
-      grid-column: 1 / -1;
-      padding-bottom: 3px;
+      padding: 0 0 9px;
+      margin-left: auto;
     }
-    .toggles label {
+    .metric-controls[hidden] { display: none; }
+    .metric-controls label {
       display: inline-flex;
-      grid-template-columns: none;
       align-items: center;
       gap: 6px;
-      max-width: none;
       white-space: nowrap;
       color: var(--text);
       font-size: 13px;
     }
+    .metric-controls input { margin: 0; }
     .table-wrap {
       max-width: 100%;
       overflow-x: auto;
     }
-    .report-section {
-      margin-top: 18px;
-    }
-    .report-section > summary {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      list-style-position: inside;
-      user-select: none;
-    }
-    .report-section > summary h2 {
-      display: inline;
-      margin: 0;
-    }
-    .section-body {
-      margin-top: 10px;
-    }
+    .section-body { margin-top: 10px; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -1027,15 +1316,45 @@ _HTML_TEMPLATE = """<!doctype html>
       background: #eef1f5;
       cursor: pointer;
       white-space: nowrap;
+      user-select: none;
+    }
+    th.sort-asc::after { content: " ▲"; color: var(--accent); }
+    th.sort-desc::after { content: " ▼"; color: var(--accent); }
+    .filter-row th {
+      background: var(--panel);
+      cursor: default;
+      padding: 6px 8px;
+    }
+    .column-filter {
+      width: 100%;
+      min-width: 96px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #fff;
+      color: var(--text);
+      padding: 5px 7px;
+      font: inherit;
+      font-size: 12px;
     }
     td {
       max-width: 340px;
       overflow-wrap: anywhere;
     }
     tr[data-question-id] { cursor: pointer; }
-    tr[data-question-id]:hover { background: #f2f6ff; }
-    .status-true { color: var(--good); font-weight: 600; }
-    .status-false { color: var(--bad); font-weight: 600; }
+    tr[data-question-id]:hover { background: #f2f6f5; }
+    tr[data-question-id].active { background: var(--accent-soft); }
+    .status-pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 1px 8px 2px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.5;
+      white-space: nowrap;
+    }
+    .status-good { color: var(--good); background: var(--good-bg); }
+    .status-bad { color: var(--bad); background: var(--bad-bg); }
+    .status-warn { color: var(--warn); background: var(--warn-bg); }
     .status-null { color: var(--muted); }
     .grid {
       display: grid;
@@ -1046,7 +1365,6 @@ _HTML_TEMPLATE = """<!doctype html>
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 6px;
       padding: 10px 12px 12px;
     }
     .detail {
@@ -1056,7 +1374,29 @@ _HTML_TEMPLATE = """<!doctype html>
       overflow: auto;
     }
     .detail h2:first-child { margin-top: 0; }
-    .sequence-response { margin-top: 10px; }
+    .sequence-group { margin-top: 18px; }
+    .sequence-group h4 { margin: 0 0 8px; }
+    .message-list { display: grid; gap: 10px; }
+    .message-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 12px 12px;
+    }
+    .message-role {
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #394656;
+    }
+    .message-card pre { margin: 0; }
+    .message-card pre + h5 { margin-top: 12px; }
+    .message-card h5 { margin: 10px 0 6px; color: var(--muted); }
+    .message-card details {
+      border-top: 1px solid var(--line);
+      margin-top: 10px;
+      padding-top: 8px;
+    }
+    .message-card summary { cursor: pointer; font-weight: 650; color: var(--muted); }
     pre {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -1082,7 +1422,8 @@ _HTML_TEMPLATE = """<!doctype html>
       border: 1px solid var(--line);
     }
     @media (max-width: 980px) {
-      .controls { grid-template-columns: minmax(0, 1fr); }
+      .report-nav { align-items: stretch; flex-direction: column; gap: 4px; }
+      .metric-controls { justify-content: flex-start; margin-left: 0; }
       .grid { grid-template-columns: 1fr; }
       .detail { position: static; max-height: none; }
       th { position: static; }
@@ -1090,65 +1431,58 @@ _HTML_TEMPLATE = """<!doctype html>
   </style>
 </head>
 <body>
-  <header>
-    <h1>Heracles Experiment Results</h1>
-    <div class="muted">Generated __GENERATED_AT__</div>
-    <div class="controls">
-      <label>Source <select id="sourceFilter"></select></label>
-      <label>Configuration <select id="configFilter"></select></label>
-      <label>Provider <select id="providerFilter"></select></label>
-      <label>Provider / Model <select id="modelFilter"></select></label>
-      <label>Correctness <select id="correctFilter">
-        <option value="all">All</option>
-        <option value="correct">Correct</option>
-        <option value="incorrect">Incorrect</option>
-        <option value="valid">Valid</option>
-        <option value="invalid">Invalid</option>
-        <option value="complete">Complete</option>
-        <option value="incomplete">Incomplete</option>
-      </select></label>
-      <label class="search-control">Search <input id="searchInput" type="search" placeholder="Table values"></label>
-      <div class="toggles">
-        <label><input type="checkbox" data-group="quality" checked> Quality</label>
-        <label><input type="checkbox" data-group="tokens"> Tokens/tools</label>
-        <label><input type="checkbox" data-group="latency"> Latency</label>
-        <label><input type="checkbox" data-group="cost"> Cost</label>
-        <label><input type="checkbox" data-group="local_resources"> Local Resources</label>
+  <div class="page-header">
+    <header>
+      <h1>Heracles Experiment Results</h1>
+      <div class="muted">Generated __GENERATED_AT__</div>
+    </header>
+    <div class="report-nav">
+      <nav class="tabs" role="tablist" aria-label="Experiment report tabs">
+        <button class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="providers-tab" data-tab="providers-tab">Provider Models</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="overview-tab" data-tab="overview-tab">Overview</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="questions-tab" data-tab="questions-tab">Questions</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="artifacts-tab" data-tab="artifacts-tab">Artifacts</button>
+      </nav>
+      <div class="metric-controls" aria-label="Metric columns" hidden>
+        <label><input type="radio" name="metric-group" data-group="quality" checked> Quality</label>
+        <label><input type="radio" name="metric-group" data-group="tokens"> Tokens/tools</label>
+        <label><input type="radio" name="metric-group" data-group="latency"> Latency</label>
+        <label><input type="radio" name="metric-group" data-group="cost"> Cost</label>
+        <label><input type="radio" name="metric-group" data-group="local_resources"> Local Resources</label>
       </div>
     </div>
-  </header>
+  </div>
   <main class="wrap">
-    <details class="report-section" open>
-      <summary><h2>Provider Models</h2></summary>
+    <section id="providers-tab" class="tab-panel active" role="tabpanel">
+      <h2>Provider Models</h2>
       <div class="section-body" id="providerModels"></div>
-    </details>
-    <details class="report-section" open>
-      <summary><h2>Overview</h2></summary>
+    </section>
+    <section id="overview-tab" class="tab-panel" role="tabpanel">
+      <h2>Overview</h2>
       <div class="section-body" id="overview"></div>
-    </details>
-    <details class="report-section" open>
-      <summary><h2>Questions</h2></summary>
+    </section>
+    <section id="questions-tab" class="tab-panel" role="tabpanel">
+      <h2>Questions</h2>
       <div class="section-body grid">
         <div id="questions"></div>
         <aside id="detail" class="panel detail">
           <div class="muted">Select a question row to inspect details.</div>
         </aside>
       </div>
-    </details>
+    </section>
+    <section id="artifacts-tab" class="tab-panel" role="tabpanel">
+      <h2>Artifacts</h2>
+      <div class="section-body" id="artifacts"></div>
+    </section>
   </main>
   <script id="report-data" type="application/json">__REPORT_DATA__</script>
   <script>
     const report = JSON.parse(document.getElementById("report-data").textContent);
-    const state = { sortKey: "source_path", sortDir: 1, selectedId: null };
-    const filters = {
-      source: document.getElementById("sourceFilter"),
-      config: document.getElementById("configFilter"),
-      provider: document.getElementById("providerFilter"),
-      model: document.getElementById("modelFilter"),
-      correct: document.getElementById("correctFilter"),
-      search: document.getElementById("searchInput"),
-    };
+    const state = { selectedId: null };
     const groupInputs = [...document.querySelectorAll("[data-group]")];
+    const tabButtons = [...document.querySelectorAll(".tab-button")];
+    const tabPanels = [...document.querySelectorAll(".tab-panel")];
+    const metricControls = document.querySelector(".metric-controls");
 
     function text(value) {
       if (value === null || value === undefined) return "";
@@ -1198,8 +1532,8 @@ _HTML_TEMPLATE = """<!doctype html>
       return formatted === "" ? "" : `${formatted} tok/s`;
     }
     function bool(value) {
-      if (value === true) return '<span class="status-true">true</span>';
-      if (value === false) return '<span class="status-false">false</span>';
+      if (value === true) return '<span class="status-pill status-good">True</span>';
+      if (value === false) return '<span class="status-pill status-bad">False</span>';
       return '<span class="status-null"></span>';
     }
     function escapeHtml(value) {
@@ -1207,34 +1541,39 @@ _HTML_TEMPLATE = """<!doctype html>
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
       }[ch]));
     }
-    function options(select, values, allLabel) {
-      const current = select.value;
-      select.innerHTML = `<option value="all">${allLabel}</option>` +
-        values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
-      if ([...select.options].some(o => o.value === current)) select.value = current;
-    }
-    function unique(values) {
-      return [...new Set(values.filter(v => v !== null && v !== undefined && v !== ""))].sort();
-    }
     function metric(q, key) {
       return q.latency && q.latency[key] !== undefined ? q.latency[key] : null;
     }
     function cost(q) {
       return q.cost && q.cost.total_cost_usd !== undefined ? q.cost.total_cost_usd : null;
     }
-    function localResource(q, group, key) {
-      return q.local_resources && q.local_resources[group] ? q.local_resources[group][key] : null;
-    }
     function localSummary(row, key) {
       return row.local_resources_summary ? row.local_resources_summary[key] : null;
     }
-    function providerLabel(row) {
-      return [row.provider, row.model_identifier].filter(Boolean).join("/");
+    function firstRecordedValue(...values) {
+      return values.find(value => value !== null && value !== undefined && value !== "");
     }
-    function providerMatchesRow(row) {
-      if (filters.provider.value === "all") return true;
-      if ((row.providers || []).includes(filters.provider.value)) return true;
-      return row.provider === filters.provider.value;
+    function questionLocalResource(row, group, ...keys) {
+      const resources = row.local_resources || row.configuration_local_resources || {};
+      const values = resources[group] || {};
+      return firstRecordedValue(...keys.map(key => values[key]));
+    }
+    function questionLocalSummary(row, key) {
+      const accessors = {
+        cpu_avg_percent: () => questionLocalResource(row, "cpu", "container_cpu_percent_normalized_avg", "container_cpu_percent_avg"),
+        cpu_peak_percent: () => questionLocalResource(row, "cpu", "container_cpu_percent_normalized_peak", "container_cpu_percent_peak"),
+        ram_peak_bytes: () => questionLocalResource(row, "ram", "container_ram_bytes_peak"),
+        gpu_vram_peak_mib: () => questionLocalResource(row, "gpu", "gpu_memory_used_mib_adjusted_peak"),
+        gpu_avg_percent: () => questionLocalResource(row, "gpu", "gpu_utilization_percent_adjusted_avg"),
+        gpu_power_avg_w: () => questionLocalResource(row, "gpu", "gpu_power_w_adjusted_avg"),
+        gpu_energy_wh: () => questionLocalResource(row, "gpu", "gpu_energy_wh_adjusted"),
+        throughput_tokens_per_second: () => questionLocalResource(row, "ollama", "output_tokens_per_second"),
+        load_time_seconds: () => questionLocalResource(row, "ollama", "load_duration_seconds"),
+      };
+      return accessors[key] ? accessors[key]() : null;
+    }
+    function hasRecordedValue(value) {
+      return value !== null && value !== undefined && value !== "";
     }
     function hasMeaningfulValue(value) {
       if (value === null || value === undefined || value === "") return false;
@@ -1244,6 +1583,9 @@ _HTML_TEMPLATE = """<!doctype html>
     function hasValue(accessor) {
       return row => hasMeaningfulValue(accessor(row));
     }
+    function hasRecorded(accessor) {
+      return row => hasRecordedValue(accessor(row));
+    }
     function activeMetricGroup() {
       const active = groupInputs.find(input => input.checked);
       return active ? active.dataset.group : null;
@@ -1251,99 +1593,100 @@ _HTML_TEMPLATE = """<!doctype html>
     function columnMatchesActiveGroup(column) {
       return !column.group || column.group === activeMetricGroup();
     }
-    function stripMarkup(value) {
-      return text(value).replace(/<[^>]*>/g, " ");
-    }
-    function rowMatchesColumns(row, columns) {
-      const term = filters.search.value.trim().toLowerCase();
-      if (!term) return true;
-      return columns.some(column => {
-        if (!columnMatchesActiveGroup(column)) return false;
-        if (column.visible && !column.visible(row)) return false;
-        const value = column.searchValue
-          ? column.searchValue(row)
-          : column.render
-          ? stripMarkup(column.render(row))
-          : valueByPath(row, column.key);
-        return text(value).toLowerCase().includes(term);
-      });
-    }
-    function hasOverviewCost(row) {
-      return hasMeaningfulValue(row.summary && row.summary.cost_total_usd) ||
-        hasMeaningfulValue(row.summary && row.summary.cost_per_question_usd) ||
-        hasMeaningfulValue(row.summary && row.summary.cost_per_correct_answer_usd) ||
-        hasMeaningfulValue(row.cost_summary && row.cost_summary.total_cost_usd);
-    }
-    function hasOverviewLocalResources(row) {
-      return Object.values(row.local_resources_summary || {}).some(hasMeaningfulValue);
-    }
-    function groupMatchesOverview(row) {
+    function rowsForActiveMetricGroup(rows, tableKind) {
       const group = activeMetricGroup();
-      if (group === "cost") return hasOverviewCost(row);
-      if (group === "local_resources") return hasOverviewLocalResources(row);
-      return true;
-    }
-    function correctnessMatchesQuestion(q) {
-      if (filters.correct.value === "correct") return q.correct === true;
-      if (filters.correct.value === "incorrect") return q.correct === false;
-      if (filters.correct.value === "valid") return q.valid_answer_format !== false;
-      if (filters.correct.value === "invalid") return q.valid_answer_format !== true;
-      if (filters.correct.value === "complete") return q.completed !== false;
-      if (filters.correct.value === "incomplete") return q.completed !== true;
-      return true;
-    }
-    function baseMatchesQuestion(q) {
-      if (filters.source.value !== "all" && q.source_path !== filters.source.value) return false;
-      if (filters.config.value !== "all" && q.configuration !== filters.config.value) return false;
-      if (!providerMatchesRow(q)) return false;
-      if (filters.model.value !== "all" && q.provider_model !== filters.model.value) return false;
-      return true;
-    }
-    function filteredQuestionsForContext() {
-      return report.questions.filter(q =>
-        baseMatchesQuestion(q) &&
-        correctnessMatchesQuestion(q)
-      );
-    }
-    function filterContext() {
-      const questions = filteredQuestionsForContext();
-      return {
-        questions,
-        configurations: new Set(questions.map(q => `${q.source_id}||${q.configuration}`)),
-      };
+      if (group === "cost") {
+        return rows.filter(row => hasRecordedValue(
+          tableKind === "overview" ? row.summary.cost_total_usd : cost(row)
+        ));
+      }
+      if (group === "local_resources") {
+        return rows.filter(row => {
+          const summary = tableKind === "overview"
+            ? row.local_resources_summary || {}
+            : {
+                cpu: questionLocalSummary(row, "cpu_avg_percent"),
+                ram: questionLocalSummary(row, "ram_peak_bytes"),
+                gpu: questionLocalSummary(row, "gpu_avg_percent"),
+                throughput: questionLocalSummary(row, "throughput_tokens_per_second"),
+              };
+          return Object.values(summary).some(hasRecordedValue);
+        });
+      }
+      return rows;
     }
     function renderTable(target, columns, rows, rowAttrs = () => "") {
-      const visibleColumns = columns.filter(c => !c.visible || rows.some(row => c.visible(row)));
-      const sortedRows = sortRows(rows, visibleColumns);
-      if (!sortedRows.length) {
-        target.innerHTML = '<div class="empty">No rows match the current filters.</div>';
+      const visibleColumns = columns.filter(column =>
+        columnMatchesActiveGroup(column) &&
+        (!column.visible || rows.some(row => column.visible(row)))
+      );
+      if (!rows.length) {
+        target.innerHTML = '<div class="empty">No rows available.</div>';
         return;
       }
-      const header = visibleColumns.map(c => `<th data-sort="${escapeHtml(c.key)}" data-group="${escapeHtml(c.group || "")}">${escapeHtml(c.label)}</th>`).join("");
-      const body = sortedRows.map(row => {
-        const cells = visibleColumns.map(c => `<td data-group="${escapeHtml(c.group || "")}">${c.render ? c.render(row) : escapeHtml(row[c.key])}</td>`).join("");
+      const header = visibleColumns.map((column, index) =>
+        `<th data-sort-index="${index}" aria-sort="none">${escapeHtml(column.label)}</th>`
+      ).join("");
+      const filterRow = visibleColumns.map((column, index) => `
+        <th>
+          <input
+            class="column-filter"
+            type="search"
+            data-filter-index="${index}"
+            placeholder="Filter ${escapeHtml(column.label)}"
+            aria-label="Filter ${escapeHtml(column.label)}"
+          >
+        </th>
+      `).join("");
+      const body = rows.map(row => {
+        const cells = visibleColumns.map(column => {
+          const sortValue = column.sortValue
+            ? column.sortValue(row)
+            : valueByPath(row, column.key);
+          const rendered = column.render
+            ? column.render(row)
+            : escapeHtml(valueByPath(row, column.key));
+          return `<td data-sort-value="${escapeHtml(sortValue)}">${rendered}</td>`;
+        }).join("");
         return `<tr ${rowAttrs(row)}>${cells}</tr>`;
       }).join("");
-      target.innerHTML = `<div class="table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`;
-      target.querySelectorAll("th[data-sort]").forEach(th => {
+      target.innerHTML = `
+        <div class="table-wrap">
+          <table class="data-table sortable filterable">
+            <thead><tr>${header}</tr><tr class="filter-row">${filterRow}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+      `;
+      bindTableInteractions(target.querySelector("table"));
+    }
+    function bindTableInteractions(table) {
+      if (!table) return;
+      table.querySelectorAll("th[data-sort-index]").forEach(th => {
         th.addEventListener("click", () => {
-          const key = th.dataset.sort;
-          state.sortDir = state.sortKey === key ? -state.sortDir : 1;
-          state.sortKey = key;
-          render();
+          const index = Number(th.dataset.sortIndex);
+          const direction = th.classList.contains("sort-asc") ? -1 : 1;
+          table.querySelectorAll("th[data-sort-index]").forEach(header => {
+            header.classList.remove("sort-asc", "sort-desc");
+            header.setAttribute("aria-sort", "none");
+          });
+          th.classList.add(direction === 1 ? "sort-asc" : "sort-desc");
+          th.setAttribute("aria-sort", direction === 1 ? "ascending" : "descending");
+          const body = table.tBodies[0];
+          [...body.rows]
+            .sort((left, right) => compareSortValues(
+              left.cells[index] && left.cells[index].dataset.sortValue,
+              right.cells[index] && right.cells[index].dataset.sortValue,
+              direction
+            ))
+            .forEach(row => body.appendChild(row));
         });
       });
-    }
-    function sortRows(rows, columns) {
-      const column = columns.find(c => c.key === state.sortKey);
-      if (!column) return [...rows];
-      return [...rows].sort((a, b) => {
-        const av = column.sortValue ? column.sortValue(a) : valueByPath(a, column.key);
-        const bv = column.sortValue ? column.sortValue(b) : valueByPath(b, column.key);
-        return compareSortValues(av, bv);
+      table.querySelectorAll(".column-filter").forEach(input => {
+        input.addEventListener("input", () => applyColumnFilters(table));
       });
     }
-    function compareSortValues(av, bv) {
+    function compareSortValues(av, bv, direction) {
       const aMissing = av === null || av === undefined || av === "";
       const bMissing = bv === null || bv === undefined || bv === "";
       if (aMissing && bMissing) return 0;
@@ -1352,9 +1695,32 @@ _HTML_TEMPLATE = """<!doctype html>
       const an = Number(av);
       const bn = Number(bv);
       if (Number.isFinite(an) && Number.isFinite(bn)) {
-        return (an - bn) * state.sortDir;
+        return (an - bn) * direction;
       }
-      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * state.sortDir;
+      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * direction;
+    }
+    function applyColumnFilters(table) {
+      const terms = [...table.querySelectorAll(".column-filter")].map(input => ({
+        index: Number(input.dataset.filterIndex),
+        value: input.value.trim().toLowerCase(),
+      }));
+      [...table.tBodies[0].rows].forEach(row => {
+        const visible = terms.every(term => {
+          if (!term.value) return true;
+          const cell = row.cells[term.index];
+          if (!cell) return false;
+          const haystack = `${cell.dataset.sortValue || ""} ${cell.textContent || ""}`.toLowerCase();
+          return haystack.includes(term.value);
+        });
+        row.hidden = !visible;
+      });
+      const questionRows = [...table.querySelectorAll("tr[data-question-id]")];
+      if (questionRows.length) {
+        const selected = questionRows.find(row => row.classList.contains("active"));
+        if (!selected || selected.hidden) {
+          selectQuestionRow(questionRows.find(row => !row.hidden) || null);
+        }
+      }
     }
     function valueByPath(row, path) {
       return path.split(".").reduce((value, key) => {
@@ -1363,7 +1729,6 @@ _HTML_TEMPLATE = """<!doctype html>
       }, row);
     }
     function renderOverview() {
-      const context = filterContext();
       const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
@@ -1378,6 +1743,7 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "tool_calls_total", label: "Tool Calls", group: "tokens", render: r => text(r.summary.tool_calls_total), sortValue: r => r.summary.tool_calls_total, visible: hasValue(r => r.summary.tool_calls_total) },
         { key: "end_to_end_latency_avg", label: "Average End-to-End Latency", group: "latency", render: r => seconds(r.summary.end_to_end_latency_avg), sortValue: r => r.summary.end_to_end_latency_avg, visible: hasValue(r => r.summary.end_to_end_latency_avg) },
         { key: "cost_total_usd", label: "Cost", group: "cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd, visible: hasValue(r => r.summary.cost_total_usd) },
+        { key: "cost_per_correct_answer_usd", label: "Cost per Success", group: "cost", render: r => money(r.summary.cost_per_correct_answer_usd), sortValue: r => r.summary.cost_per_correct_answer_usd, visible: hasRecorded(r => r.summary.cost_per_correct_answer_usd) },
         { key: "local_resources_summary.cpu_avg_percent", label: "CPU Avg", group: "local_resources", render: r => percent(localSummary(r, "cpu_avg_percent")), sortValue: r => localSummary(r, "cpu_avg_percent"), visible: hasValue(r => localSummary(r, "cpu_avg_percent")) },
         { key: "local_resources_summary.cpu_peak_percent", label: "CPU Peak", group: "local_resources", render: r => percent(localSummary(r, "cpu_peak_percent")), sortValue: r => localSummary(r, "cpu_peak_percent"), visible: hasValue(r => localSummary(r, "cpu_peak_percent")) },
         { key: "local_resources_summary.ram_peak_bytes", label: "RAM Peak", group: "local_resources", render: r => bytes(localSummary(r, "ram_peak_bytes")), sortValue: r => localSummary(r, "ram_peak_bytes"), visible: hasValue(r => localSummary(r, "ram_peak_bytes")) },
@@ -1388,17 +1754,13 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "local_resources_summary.throughput_tokens_per_second", label: "Throughput", group: "local_resources", render: r => tokensPerSecond(localSummary(r, "throughput_tokens_per_second")), sortValue: r => localSummary(r, "throughput_tokens_per_second"), visible: hasValue(r => localSummary(r, "throughput_tokens_per_second")) },
         { key: "local_resources_summary.load_time_seconds", label: "Load Time", group: "local_resources", render: r => seconds(localSummary(r, "load_time_seconds")), sortValue: r => localSummary(r, "load_time_seconds"), visible: hasValue(r => localSummary(r, "load_time_seconds")) },
       ];
-      const rows = report.overview.filter(r =>
-        context.configurations.has(`${r.source_id}||${r.configuration}`) &&
-        providerMatchesRow(r) &&
-        (filters.model.value === "all" || r.provider_model === filters.model.value) &&
-        groupMatchesOverview(r) &&
-        rowMatchesColumns(r, columns)
+      renderTable(
+        document.getElementById("overview"),
+        columns,
+        rowsForActiveMetricGroup(report.overview, "overview")
       );
-      renderTable(document.getElementById("overview"), columns, rows);
     }
     function renderProviderModels() {
-      const context = filterContext();
       const columns = [
         { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
@@ -1406,18 +1768,17 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "provider", label: "Provider" },
         { key: "model_identifier", label: "Model Identifier" },
       ];
-      const rows = report.provider_models.filter(r => {
-        const label = providerLabel(r);
-        return context.configurations.has(`${r.source_id}||${r.configuration}`) &&
-          providerMatchesRow(r) &&
-          (
-            filters.model.value === "all" ||
-            label === filters.model.value ||
-            r.configuration_provider_model === filters.model.value
-          ) &&
-          rowMatchesColumns(r, columns);
-      });
-      renderTable(document.getElementById("providerModels"), columns, rows);
+      renderTable(document.getElementById("providerModels"), columns, report.provider_models);
+    }
+    function renderArtifacts() {
+      const columns = [
+        { key: "artifact", label: "Artifact" },
+        { key: "path", label: "Path" },
+        { key: "exists", label: "Exists", render: r => bool(r.exists) },
+        { key: "bytes", label: "Bytes", render: r => text(r.bytes), sortValue: r => r.bytes },
+        { key: "modified_at", label: "Modified At" },
+      ];
+      renderTable(document.getElementById("artifacts"), columns, report.artifacts || []);
     }
     function renderQuestions() {
       const columns = [
@@ -1440,23 +1801,71 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "latency.retry_wait_seconds", label: "Retry Wait", group: "latency", render: q => seconds(metric(q, "retry_wait_seconds")), visible: hasValue(q => metric(q, "retry_wait_seconds")) },
         { key: "latency.time_to_first_token_seconds", label: "Time to First Token", group: "latency", render: q => seconds(metric(q, "time_to_first_token_seconds")), visible: hasValue(q => metric(q, "time_to_first_token_seconds")) },
         { key: "cost", label: "Cost USD", group: "cost", render: q => money(cost(q)), sortValue: q => cost(q), visible: hasValue(q => cost(q)) },
+        { key: "local_resources.cpu_avg_percent", label: "CPU Avg", group: "local_resources", render: q => percent(questionLocalSummary(q, "cpu_avg_percent")), sortValue: q => questionLocalSummary(q, "cpu_avg_percent"), visible: hasRecorded(q => questionLocalSummary(q, "cpu_avg_percent")) },
+        { key: "local_resources.cpu_peak_percent", label: "CPU Peak", group: "local_resources", render: q => percent(questionLocalSummary(q, "cpu_peak_percent")), sortValue: q => questionLocalSummary(q, "cpu_peak_percent"), visible: hasRecorded(q => questionLocalSummary(q, "cpu_peak_percent")) },
+        { key: "local_resources.ram_peak_bytes", label: "RAM Peak", group: "local_resources", render: q => bytes(questionLocalSummary(q, "ram_peak_bytes")), sortValue: q => questionLocalSummary(q, "ram_peak_bytes"), visible: hasRecorded(q => questionLocalSummary(q, "ram_peak_bytes")) },
+        { key: "local_resources.gpu_vram_peak_mib", label: "VRAM Peak", group: "local_resources", render: q => mib(questionLocalSummary(q, "gpu_vram_peak_mib")), sortValue: q => questionLocalSummary(q, "gpu_vram_peak_mib"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_vram_peak_mib")) },
+        { key: "local_resources.gpu_avg_percent", label: "GPU Avg", group: "local_resources", render: q => percent(questionLocalSummary(q, "gpu_avg_percent")), sortValue: q => questionLocalSummary(q, "gpu_avg_percent"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_avg_percent")) },
+        { key: "local_resources.gpu_power_avg_w", label: "GPU Power Avg", group: "local_resources", render: q => watts(questionLocalSummary(q, "gpu_power_avg_w")), sortValue: q => questionLocalSummary(q, "gpu_power_avg_w"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_power_avg_w")) },
+        { key: "local_resources.gpu_energy_wh", label: "GPU Energy", group: "local_resources", render: q => wattHours(questionLocalSummary(q, "gpu_energy_wh")), sortValue: q => questionLocalSummary(q, "gpu_energy_wh"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_energy_wh")) },
+        { key: "local_resources.throughput_tokens_per_second", label: "Throughput", group: "local_resources", render: q => tokensPerSecond(questionLocalSummary(q, "throughput_tokens_per_second")), sortValue: q => questionLocalSummary(q, "throughput_tokens_per_second"), visible: hasRecorded(q => questionLocalSummary(q, "throughput_tokens_per_second")) },
+        { key: "local_resources.load_time_seconds", label: "Load Time", group: "local_resources", render: q => seconds(questionLocalSummary(q, "load_time_seconds")), sortValue: q => questionLocalSummary(q, "load_time_seconds"), visible: hasRecorded(q => questionLocalSummary(q, "load_time_seconds")) },
       ];
-      const rows = filteredQuestionsForContext().filter(q => rowMatchesColumns(q, columns));
       renderTable(
         document.getElementById("questions"),
         columns,
-        rows,
+        rowsForActiveMetricGroup(report.questions, "questions"),
         q => `data-question-id="${escapeHtml(q.id)}"`
       );
-      document.querySelectorAll("tr[data-question-id]").forEach(row => {
-        row.addEventListener("click", () => {
-          state.selectedId = row.dataset.questionId;
-          renderDetail();
-        });
+      const questionRows = [...document.querySelectorAll("tr[data-question-id]")];
+      questionRows.forEach(row => {
+        row.addEventListener("click", () => selectQuestionRow(row));
       });
-      applyGroupVisibility();
-      if (!rows.some(q => q.id === state.selectedId)) state.selectedId = rows[0] && rows[0].id;
+      const selectedRow = questionRows.find(row => row.dataset.questionId === state.selectedId);
+      selectQuestionRow(selectedRow || questionRows[0] || null);
+    }
+    function selectQuestionRow(row) {
+      document.querySelectorAll("tr[data-question-id]").forEach(candidate => {
+        candidate.classList.toggle("active", candidate === row);
+      });
+      state.selectedId = row ? row.dataset.questionId : null;
       renderDetail();
+    }
+    function prettyValue(value) {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "string") return value;
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch (_error) {
+        return text(value);
+      }
+    }
+    function roleLabel(role) {
+      return text(role || "Message")
+        .split(/[ _-]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
+    function renderMessage(message, index) {
+      const content = prettyValue(message.content);
+      const toolCallsHtml = message.tool_calls
+        ? `<h5>Tool Calls</h5><pre>${escapeHtml(prettyValue(message.tool_calls))}</pre>`
+        : "";
+      const metadataHtml = message.metadata
+        ? `<h5>Metadata</h5><pre>${escapeHtml(prettyValue(message.metadata))}</pre>`
+        : "";
+      const rawHtml = message.raw_response !== null && message.raw_response !== undefined
+        ? `<details><summary>Raw Response</summary><pre>${escapeHtml(prettyValue(message.raw_response))}</pre></details>`
+        : "";
+      const toolName = message.tool_name ? ` · ${escapeHtml(message.tool_name)}` : "";
+      return `
+        <article class="message-card">
+          <div class="message-role">${index}. ${escapeHtml(roleLabel(message.role))}${toolName}</div>
+          <pre>${escapeHtml(content)}</pre>
+          ${toolCallsHtml}${metadataHtml}${rawHtml}
+        </article>
+      `;
     }
     function renderDetail() {
       const q = report.questions.find(item => item.id === state.selectedId);
@@ -1465,17 +1874,18 @@ _HTML_TEMPLATE = """<!doctype html>
         target.innerHTML = '<div class="muted">Select a question row to inspect details.</div>';
         return;
       }
-      const sequenceHtml = (q.sequences || []).map(seq => `
-        <h2>${escapeHtml(seq.description || "Sequence")}</h2>
-        ${(seq.responses || []).map((r, i) => `
-          <div class="panel sequence-response">
-            <strong>Response ${i + 1}</strong>
-            <pre>${escapeHtml(r.raw_response)}</pre>
+      const sequenceHtml = (q.sequences || []).map((sequence, sequenceIndex) => `
+        <section class="sequence-group">
+          <h4>Sequence ${sequenceIndex + 1}: ${escapeHtml(sequence.description || "Sequence")}</h4>
+          <div class="message-list">
+            ${(sequence.messages || []).map((message, messageIndex) =>
+              renderMessage(message, messageIndex + 1)
+            ).join("") || '<div class="muted">No messages recorded.</div>'}
           </div>
-        `).join("")}
+        </section>
       `).join("");
       target.innerHTML = `
-        <h2>Topic: ${escapeHtml(q.name)}</h2>
+        <h3>Topic: ${escapeHtml(q.name)}</h3>
         <dl class="kv">
           <dt>Source</dt><dd>${escapeHtml(q.source_path)}</dd>
           <dt>Configuration</dt><dd>${escapeHtml(q.configuration)}</dd>
@@ -1487,45 +1897,33 @@ _HTML_TEMPLATE = """<!doctype html>
           <dt>Output Tokens</dt><dd>${escapeHtml(q.output_tokens)}</dd>
           <dt>Tool Calls</dt><dd>${escapeHtml(q.n_tool_calls)}</dd>
         </dl>
-        <h2>Question</h2><pre>${escapeHtml(q.question)}</pre>
-        <h2>Solution</h2><pre>${escapeHtml(q.solution)}</pre>
-        <h2>Answer</h2><pre>${escapeHtml(q.answer)}</pre>
-        <h2>Latency (s)</h2><pre>${escapeHtml(JSON.stringify(q.latency || {}, null, 2))}</pre>
-        <h2>Cost</h2><pre>${escapeHtml(JSON.stringify(q.cost || {}, null, 2))}</pre>
-        <h2>Local Resources</h2><pre>${escapeHtml(JSON.stringify(q.configuration_local_resources || q.local_resources || {}, null, 2))}</pre>
-        <h2>Sequences</h2>${sequenceHtml || '<div class="muted">No sequences recorded.</div>'}
+        <h4>Question</h4><pre>${escapeHtml(q.question)}</pre>
+        <h4>Solution</h4><pre>${escapeHtml(q.solution)}</pre>
+        <h4>Answer</h4><pre>${escapeHtml(q.answer)}</pre>
+        <h4>Latency (s)</h4><pre>${escapeHtml(JSON.stringify(q.latency || {}, null, 2))}</pre>
+        <h4>Cost</h4><pre>${escapeHtml(JSON.stringify(q.cost || {}, null, 2))}</pre>
+        <h4>Local Resources</h4><pre>${escapeHtml(JSON.stringify(q.configuration_local_resources || q.local_resources || {}, null, 2))}</pre>
+        <h4>Messages</h4>${sequenceHtml || '<div class="muted">No messages recorded.</div>'}
       `;
     }
-    function setExclusiveGroupSelection(changedInput) {
-      groupInputs.forEach(input => {
-        input.checked = input === changedInput;
+    function selectTab(button) {
+      const panelId = button.dataset.tab;
+      tabButtons.forEach(candidate => {
+        const active = candidate === button;
+        candidate.classList.toggle("active", active);
+        candidate.setAttribute("aria-selected", active ? "true" : "false");
       });
-    }
-    function applyGroupVisibility() {
-      const active = new Map(groupInputs.map(input => [input.dataset.group, input.checked]));
-      document.querySelectorAll("th[data-group], td[data-group]").forEach(el => {
-        const group = el.dataset.group;
-        if (!group) return;
-        el.style.display = active.get(group) ? "" : "none";
-      });
-    }
-    function populateFilters() {
-      options(filters.source, unique(report.questions.map(q => q.source_path)), "All sources");
-      options(filters.config, unique(report.questions.map(q => q.configuration)), "All configurations");
-      options(filters.provider, unique(report.questions.flatMap(q => q.providers || (q.provider ? [q.provider] : []))), "All providers");
-      options(filters.model, unique(report.questions.map(q => q.provider_model)), "All provider/models");
+      tabPanels.forEach(panel => panel.classList.toggle("active", panel.id === panelId));
+      metricControls.hidden = !["overview-tab", "questions-tab"].includes(panelId);
     }
     function render() {
       renderOverview();
       renderProviderModels();
       renderQuestions();
+      renderArtifacts();
     }
-    populateFilters();
-    Object.values(filters).forEach(el => el.addEventListener("input", render));
-    groupInputs.forEach(el => el.addEventListener("change", () => {
-      setExclusiveGroupSelection(el);
-      render();
-    }));
+    tabButtons.forEach(button => button.addEventListener("click", () => selectTab(button)));
+    groupInputs.forEach(input => input.addEventListener("change", render));
     render();
   </script>
 </body>

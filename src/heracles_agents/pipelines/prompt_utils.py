@@ -3,38 +3,26 @@ from sldp.sldp_lang import get_sldp_type
 
 def get_sldp_format_description():
     return """
-Please format your response according to the SLDP Equality Language:
+Please format your response according to the SLDP Language:
 
-## SLDP Equality Language
+## SLDP Language
 
-To evaluate if an answer is correct, we need to define a sense of equality.
-This is rather tricky, because there are different senses in which things can be equal.
+A SLDP answer represents the answer to a direct question.
+It can be a primitive string, primitive number, list, set, dictionarie, or point.
+It can also be an arbitrary composition of these containers.
 
-We need to handle Lists, Sets, Dictionaries, and Points.
-Lists are equal if each element is equal.
-Sets A and B are equal if A subset B and B subset A.
-Dictionaries are equal if the sets of their keys are equal and the value for each key matches between dictionaries.
-Two points are equal if they are within some tolerance.
-Of course primitive numbers and strings can also be compared for equality.
-We support arbitrary compositions of these containers.
+Use object and place symbols exactly as they appear in the scene graph. Node symbols should not contain parentheses or quotes. For example, O(1) should be written as O1.
 
-We expect nodes in the graph to be represented without any parentheses.
-For example O(1) should be represented as O1.
-We also expect no additional information than what is explicitly asked for in the question.
+Do not include additional information than what is explicitly asked for in the question.
 E.g., if the question asks for a list of node IDs, the answer should be a list of node IDs and not a list of nodes with their properties or if the question asks for locations a list of points should be provided and not a list of nodes with their locations.
 
 ### Syntax
 
 A primitive string is a sequence of alphanumeric characters (with no quotation).
-
 A primitive number is a floating point representation of a number.
-
 A `list` is written as `[element1, element2, ... elementN]`
-
 A `set` is written as `<element1, element2, ... elementN>`
-
 A `dict` is written as `{k1: v1, k2: v2}`
-
 A `point` is written as `POINT(x y z)` (note the lack of comma)
 """
 
@@ -45,7 +33,7 @@ def get_sldp_answer_tag_text():
 
 Format your final answer (*not* any intermediate tool calls) as an SLDP expression wrapped between the <answer> and </answer> tags (XML-style format).
 Example: <answer> <1,2,3> </answer>
-Only a single pair of answer tags should appear in your solution.
+Only a single pair of answer tags should appear.
 """
 
 
@@ -59,28 +47,21 @@ def include_answer_type_hint(prompt_settings):
 
 def get_pddl_format_description():
     return """
-Please format your response according to the PDDL goal language:
+Please format your response according to the PDDL Goal Language:
 
 ## PDDL Goal Language
 
-A PDDL goal describes the desired final state for a planner. It must be a single
-valid goal expression using predicates from the provided PDDL domain.
+A PDDL goal describes the desired final state for a planner. It must be a single valid goal expression using predicates from the provided PDDL domain.
 
-Use object and place symbols exactly as they appear in the scene graph. Node
-symbols should not contain parentheses or quotes. For example, O(1) should be
-written as O1.
+Use object and place symbols exactly as they appear in the scene graph. Node symbols should not contain parentheses or quotes. For example, O(1) should be written as O1.
 
-Do not include explanatory text inside the final answer. Do not invent
-predicates outside the provided PDDL domain.
+Do not include explanatory text inside the final answer. Do not invent predicates outside the provided PDDL domain.
 
 ### Syntax
 
 An atomic predicate is written as `(predicate arg1 arg2 ... argN)`.
-
 A conjunction is written as `(and goal1 goal2 ... goalN)`.
-
 A disjunction is written as `(or goal1 goal2 ... goalN)`.
-
 A negated atomic predicate is written as `(not (predicate arg1 arg2 ... argN))`.
 
 Examples:
@@ -96,7 +77,7 @@ def get_pddl_answer_tag_text():
 
 Format your final answer (*not* any intermediate tool calls) as a PDDL goal wrapped between the <answer> and </answer> tags (XML-style format).
 Example: <answer> (visited-place P100) </answer>
-Only a single pair of answer tags should appear in your solution.
+Only a single pair of answer tags should appear.
 """
 
 
