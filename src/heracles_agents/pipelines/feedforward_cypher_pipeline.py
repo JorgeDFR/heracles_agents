@@ -17,6 +17,7 @@ from heracles_agents.llm_interface import (
     LlmAgent,
     QuestionAnalysis,
     make_cost_metrics,
+    make_input_token_metrics,
     make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
@@ -124,14 +125,13 @@ def feedforward_cypher(exp):
             )
             sequences.append(refinement_sequence)
 
-            n_input_tokens = cxt.initial_input_tokens + cxt2.initial_input_tokens
             n_output_tokens = cxt.total_output_tokens + cxt2.total_output_tokens
             n_tool_calls = cxt.n_tool_calls + cxt2.n_tool_calls
 
             analysis = QuestionAnalysis(
                 correct=correct,
                 valid_answer_format=valid_format,
-                input_tokens=n_input_tokens,
+                **make_input_token_metrics(contexts),
                 output_tokens=n_output_tokens,
                 n_tool_calls=n_tool_calls,
                 latency=make_latency_metrics(
@@ -150,7 +150,7 @@ def feedforward_cypher(exp):
             analysis = QuestionAnalysis(
                 correct=False,
                 valid_answer_format=False,
-                input_tokens=0,
+                **make_input_token_metrics(contexts),
                 output_tokens=0,
                 n_tool_calls=0,
                 latency=make_latency_metrics(

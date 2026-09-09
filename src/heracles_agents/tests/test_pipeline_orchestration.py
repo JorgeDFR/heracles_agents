@@ -85,7 +85,7 @@ def test_canary_generate_prompt_sets_tool_and_answer_guidance():
     assert "The following tools can be used" in prompt.tool_description
     assert "Function name: tool" in prompt.tool_description
     assert prompt.answer_semantic_guidance == "Make your answer as concise as possible."
-    assert "SLDP Equality Language" in prompt.answer_formatting_guidance
+    assert "SLDP Language" in prompt.answer_formatting_guidance
 
 
 def test_agentic_generate_prompt_includes_api_prompt_for_python_dsg():

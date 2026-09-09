@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
+import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +21,8 @@ from heracles_agents.local_metrics.monitor import (
 )
 from heracles_agents.local_metrics.ollama_runtime import summarize_ollama_metrics
 
+logger = logging.getLogger(__name__)
+
 
 def prepare_local_resource_monitor(exp) -> LocalResourceMonitor:
     config = config_from_mapping(getattr(exp, "local_metrics", None))
@@ -24,7 +30,75 @@ def prepare_local_resource_monitor(exp) -> LocalResourceMonitor:
         config.enabled = False
     monitor = LocalResourceMonitor(config)
     monitor.collect_baseline()
+    _warm_up_ollama(exp, monitor)
     return monitor
+
+
+def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
+    """Load each configuration's Ollama model after baseline, before sampling."""
+
+    config = monitor.config
+    if not config.enabled or not config.warmup_enabled:
+        monitor.warmup = {"enabled": False, "requests": []}
+        return
+
+    models = list(
+        dict.fromkeys(
+            str(phase.model_info.model)
+            for phase in getattr(exp, "phases", {}).values()
+            if getattr(getattr(phase, "client", None), "client_type", None) == "ollama"
+        )
+    )
+    records = []
+    for model in models:
+        for attempt in range(1, config.warmup_requests + 1):
+            logger.info(
+                "Warming Ollama model: %s (%s/%s)",
+                model,
+                attempt,
+                config.warmup_requests,
+            )
+            payload = json.dumps(
+                {
+                    "model": model,
+                    "messages": [{"role": "user", "content": config.warmup_prompt}],
+                    "stream": False,
+                    "options": {"temperature": 0, "num_predict": 8},
+                }
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                config.ollama_host.rstrip("/") + "/api/chat",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            started = time.perf_counter()
+            try:
+                with urllib.request.urlopen(
+                    request, timeout=config.warmup_timeout_seconds
+                ) as response:
+                    response.read()
+                records.append(
+                    {
+                        "model": model,
+                        "request": attempt,
+                        "succeeded": True,
+                        "elapsed_seconds": round(time.perf_counter() - started, 6),
+                    }
+                )
+            except Exception as ex:
+                warning = f"Ollama warmup failed for {model}: {type(ex).__name__}: {ex}"
+                monitor.warnings.append(warning)
+                records.append(
+                    {
+                        "model": model,
+                        "request": attempt,
+                        "succeeded": False,
+                        "elapsed_seconds": round(time.perf_counter() - started, 6),
+                        "error": warning,
+                    }
+                )
+    monitor.warmup = {"enabled": True, "requests": records}
 
 
 def start_local_resource_measurement(

@@ -84,6 +84,12 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                         "analysis": {
                             "valid_answer_format": True,
                             "correct": True,
+                            "final_answer_match": True,
+                            "cypher_solution_match": True,
+                            "tool_executable": True,
+                            "generated_cypher": "MATCH (n) RETURN count(n) AS count",
+                            "cypher_tool_output": "[{'count': 2}]",
+                            "cypher_validation_issues": [],
                             "input_tokens": 10,
                             "output_tokens": 4,
                             "n_tool_calls": 0,
@@ -158,6 +164,12 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                         "analysis": {
                             "valid_answer_format": True,
                             "correct": False,
+                            "final_answer_match": False,
+                            "cypher_solution_match": False,
+                            "tool_executable": True,
+                            "generated_cypher": "MATCH (n) RETURN n",
+                            "cypher_tool_output": "[{'n': 5}]",
+                            "cypher_validation_issues": ["solution mismatch"],
                             "input_tokens": 20,
                             "output_tokens": 6,
                             "n_tool_calls": 1,
@@ -194,6 +206,10 @@ def test_load_result_file_normalizes_experiment_yaml_shape(tmp_path):
     assert configuration.questions[0].latency["end_to_end_seconds"] == 2.0
     assert configuration.questions[0].cost["total_cost_usd"] == 0.001
     assert configuration.questions[0].n_sequences == 1
+    assert configuration.questions[0].final_answer_match is True
+    assert configuration.questions[0].cypher_solution_match is True
+    assert configuration.questions[0].tool_executable is True
+    assert configuration.questions[0].generated_cypher.endswith("AS count")
 
 
 def test_load_result_file_supports_single_analyzed_questions_shape(tmp_path):
@@ -222,6 +238,9 @@ def test_summarize_configuration_counts_core_metrics_and_optional_metrics(tmp_pa
     assert summary.completed_count == 2
     assert summary.correct_count == 1
     assert summary.accuracy == 0.5
+    assert summary.final_answer_match_rate == 0.5
+    assert summary.cypher_solution_match_rate == 0.5
+    assert summary.tool_executable_rate == 1.0
     assert summary.input_tokens_total == 30
     assert summary.input_tokens_avg == 15
     assert summary.output_tokens_total == 10
@@ -320,7 +339,15 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert 'class="message-card"' in html
     assert 'class="message-role"' in html
     assert 'class="sequence-group"' in html
-    assert "Raw Response" in html
+    assert 'class="validation-detail-group"' in html
+    assert 'class="validation-detail-group-body"' in html
+    assert '<article class="message-card">' in html
+    assert "Raw Response" not in html
+    assert "Expand all" not in html
+    assert "Collapse all" not in html
+    assert "Generated Cypher" in html
+    assert "Cypher Tool Output" in html
+    assert "Cypher Validation Issues" in html
     assert "Parsed Response" not in html
     assert "openrouter" in html
     assert '"provider": "openrouter"' in html
@@ -353,6 +380,21 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert "parsed response" in html
     assert "<script>alert('x')</script>" not in html
     assert "\\u003cscript>alert('x')\\u003c/script>" in html
+
+    questions_renderer = html.split("function renderQuestions()", 1)[1].split(
+        "function selectQuestionRow", 1
+    )[0]
+    assert 'key: "source_path", label: "Source"' not in questions_renderer
+    assert questions_renderer.index('label: "Tool Executable"') < questions_renderer.index(
+        'label: "Cypher Solution / Grounding Match"'
+    ) < questions_renderer.index('label: "Final Answer Match"')
+
+    detail_renderer = html.split("function renderDetail()", 1)[1].split(
+        "function selectTab", 1
+    )[0]
+    assert detail_renderer.index("<dt>Tool Executable</dt>") < detail_renderer.index(
+        "<dt>Cypher Solution / Grounding Match</dt>"
+    ) < detail_renderer.index("<dt>Final Answer Match</dt>")
 
 
 def test_html_payload_structures_saved_responses_as_messages(tmp_path):
@@ -405,9 +447,13 @@ def test_html_payload_structures_saved_responses_as_messages(tmp_path):
     assert messages[0]["content"] == "Checking the graph"
     assert messages[0]["tool_calls"][0]["name"] == "run_cypher_query"
     assert messages[0]["metadata"] == {"request_id": "request-1"}
+    assert "tool_calls" in messages[0]["raw_message"]
+    assert "raw_response" not in messages[0]
     assert messages[1]["role"] == "tool"
     assert messages[1]["tool_name"] == "run_cypher_query"
     assert messages[1]["content"] == [{"n": "O1"}]
+    assert messages[1]["metadata"] is None
+    assert messages[1]["raw_message"] is None
     assert messages[2]["role"] == "assistant"
     assert messages[2]["content"] == "Preparing the query"
     assert messages[2]["tool_calls"] == [
@@ -418,6 +464,37 @@ def test_html_payload_structures_saved_responses_as_messages(tmp_path):
             }
         }
     ]
+
+
+def test_html_payload_prefers_structured_assistant_reasoning_and_tool_calls(tmp_path):
+    data = sample_result_data()
+    responses = data["experiment_configurations"]["canary"]["analyzed_questions"][0][
+        "sequences"
+    ][0]["responses"]
+    responses[:] = [
+        {
+            "raw_response": "provider-specific repr that should not be rendered",
+            "parsed_response": "fallback",
+            "role": "assistant",
+            "kind": "tool_call",
+            "content": "run_cypher_query(...)",
+            "reasoning": "I need the object count.",
+            "tool_name": "run_cypher_query",
+            "tool_args": {"cypher_string": "MATCH (o:Object) RETURN count(o)"},
+        }
+    ]
+    source = load_result_file(write_yaml(tmp_path, "results.yaml", data))
+
+    message = _html_payload([source])["questions"][0]["sequences"][0]["messages"][0]
+
+    assert message["role"] == "assistant"
+    assert message["kind"] == "tool_call"
+    assert message["reasoning"] == "I need the object count."
+    assert message["tool_args"]["cypher_string"].startswith("MATCH")
+    assert message["raw_message"] == (
+        "provider-specific repr that should not be rendered"
+    )
+    assert "raw_response" not in message
 
 
 def test_html_payload_collects_result_and_referenced_artifacts(tmp_path):
@@ -447,6 +524,32 @@ def test_html_payload_collects_result_and_referenced_artifacts(tmp_path):
     assert all(artifact["exists"] for artifact in artifacts)
     assert all(artifact["bytes"] > 0 for artifact in artifacts)
     assert all(artifact["modified_at"] for artifact in artifacts)
+
+
+def test_benchmark_artifacts_ignore_temporary_sweep_experiment(tmp_path):
+    questions_path = write_yaml(tmp_path, "questions.yaml", {"questions": []})
+    manifest_path = write_yaml(
+        tmp_path,
+        "benchmark.yaml",
+        {"benchmark": {"questions": {"qa": str(questions_path)}}},
+    )
+    data = sample_result_data()
+    data["metadata"].update(
+        {
+            "benchmark_manifest": str(manifest_path),
+            "source_experiment": "/tmp/generated-model-sweep.yaml",
+        }
+    )
+    source = load_result_file(write_yaml(tmp_path, "results.yaml", data))
+
+    artifacts = _html_payload([source])["artifacts"]
+
+    assert [artifact["artifact"] for artifact in artifacts] == [
+        "result",
+        "benchmark_manifest",
+        "qa",
+    ]
+    assert all("generated-model-sweep" not in artifact["path"] for artifact in artifacts)
 
 
 def test_load_result_files_supports_multiple_yaml_files(tmp_path):

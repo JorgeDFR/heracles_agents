@@ -123,6 +123,8 @@ def test_agent_context_initialize_and_call_llm_retries(monkeypatch):
     assert context.call_llm(context.history) == "ok"
     assert len(calls) == 2
     assert calls[-1][1:] == (["tool"], "text", ["hello"])
+    assert context.total_input_tokens == 7
+    assert context.total_input_tokens_processed == 14
     assert context.llm_call_seconds == 0.75
     assert context.retry_wait_seconds == 0.5
 
@@ -177,6 +179,65 @@ def test_agent_context_records_openrouter_cost_call(monkeypatch):
     assert context.llm_call_costs[0].request_cost_usd == 0.0002
     assert context.llm_call_costs[0].pricing_source == "openrouter_response_usage"
     assert context.llm_call_costs[0].provider_response_id == "gen-1"
+    assert context.llm_call_costs[0].observed_call_seconds is not None
+    assert context.llm_call_costs[0].throughput_source == "observed_call_wall_time"
+    assert context.total_input_tokens == 12
+    assert context.total_input_tokens_processed == 12
+
+
+def test_agent_context_separates_new_processed_and_cached_input_tokens(monkeypatch):
+    responses = iter(
+        [
+            SimpleNamespace(
+                id="gen-1",
+                model="served/model",
+                usage=SimpleNamespace(
+                    prompt_tokens=10,
+                    completion_tokens=2,
+                    cost=0.001,
+                    prompt_tokens_details=SimpleNamespace(
+                        cached_tokens=2,
+                        cache_write_tokens=3,
+                    ),
+                ),
+            ),
+            SimpleNamespace(
+                id="gen-2",
+                model="served/model",
+                usage=SimpleNamespace(
+                    prompt_tokens=15,
+                    completion_tokens=3,
+                    cost=0.002,
+                    prompt_tokens_details=SimpleNamespace(
+                        cached_tokens=8,
+                        cache_write_tokens=0,
+                    ),
+                ),
+            ),
+        ]
+    )
+    agent = make_agent(
+        client=SimpleNamespace(
+            client_type="openrouter",
+            call=lambda *_args: next(responses),
+        )
+    )
+    context = AgentContext(agent)
+    monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda _info: [])
+    monkeypatch.setattr(
+        llm_interface,
+        "count_message_tokens",
+        lambda _agent, messages: len(messages) * 10,
+    )
+
+    context.call_llm(["initial"])
+    context.call_llm(["initial", "tool response"])
+
+    assert context.total_input_tokens == 15
+    assert context.total_input_tokens_processed == 25
+    assert context.cached_input_tokens == 10
+    assert context.cache_write_input_tokens == 3
+    assert context.llm_call_costs[1].cached_input_tokens == 8
 
 
 def test_agent_context_call_llm_raises_after_retries(monkeypatch):
@@ -366,25 +427,28 @@ def test_make_latency_metrics_aggregates_contexts():
     assert latency.time_to_first_token_seconds == 0.7
 
 
-def test_openrouter_cost_metrics_use_generation_stats():
+def test_openrouter_cost_metrics_do_not_fetch_generation_stats():
+    generation_requests = []
     call = LlmCallCost(
         provider="openrouter",
-        model_identifier="requested/model",
-        input_tokens=10,
-        output_tokens=2,
-        pricing_source="openrouter_generation_api_pending",
+        model_identifier="served/model",
+        input_tokens=11,
+        output_tokens=3,
+        request_cost_usd=0.0000123,
+        pricing_source="openrouter_response_usage",
         provider_response_id="gen-1",
+        billed_input_tokens=11,
+        billed_output_tokens=3,
+        observed_call_seconds=1.2,
+        output_tokens_per_second=2.5,
+        throughput_source="observed_call_wall_time",
     )
     context = SimpleNamespace(
         agent=SimpleNamespace(
             client=SimpleNamespace(
-                get_generation_stats=lambda generation_id: {
-                    "id": generation_id,
-                    "model": "served/model",
-                    "native_tokens_prompt": 11,
-                    "native_tokens_completion": 3,
-                    "total_cost": "0.0000123",
-                }
+                get_generation_stats=lambda generation_id: generation_requests.append(
+                    generation_id
+                )
             )
         ),
         llm_call_costs=[call],
@@ -399,7 +463,10 @@ def test_openrouter_cost_metrics_use_generation_stats():
     assert cost.llm_calls[0].output_tokens == 3
     assert cost.llm_calls[0].billed_input_tokens == 11
     assert cost.llm_calls[0].billed_output_tokens == 3
-    assert cost.llm_calls[0].pricing_source == "openrouter_generation_api"
+    assert cost.llm_calls[0].pricing_source == "openrouter_response_usage"
+    assert cost.llm_calls[0].observed_call_seconds == 1.2
+    assert cost.llm_calls[0].output_tokens_per_second == 2.5
+    assert generation_requests == []
 
 
 def test_openrouter_cost_metrics_fall_back_to_model_pricing():

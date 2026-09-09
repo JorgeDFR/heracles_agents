@@ -267,7 +267,7 @@ def test_prompt_settings_loads_path_dict_and_prompt(tmp_path, monkeypatch):
 
 
 def test_answer_guidance_helpers_return_expected_sections():
-    assert "SLDP Equality Language" in get_sldp_format_description()
+    assert "SLDP Language" in get_sldp_format_description()
     assert "<answer>" in get_sldp_answer_tag_text()
     assert "PDDL Goal Language" in get_pddl_format_description()
     assert "<answer>" in get_pddl_answer_tag_text()

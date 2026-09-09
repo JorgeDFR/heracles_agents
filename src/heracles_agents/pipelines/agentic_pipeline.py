@@ -17,9 +17,11 @@ from heracles_agents.llm_interface import (
     LlmAgent,
     QuestionAnalysis,
     make_cost_metrics,
+    make_input_token_metrics,
     make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
+from heracles_agents.pipelines.cypher_validation import validate_last_cypher_tool_call
 from heracles_agents.pipelines.local_metrics import (
     make_local_resource_metrics,
     prepare_local_resource_monitor,
@@ -69,7 +71,8 @@ def agentic_pipeline(exp):
     if exp.dsg_interface.dsg_interface_type == "python":
         api_string = exp.dsg_interface.get_dsg_api_prompt()
 
-    for question in exp.questions:
+    question_total = len(exp.questions)
+    for question_index, question in enumerate(exp.questions, start=1):
         question_started = perf_counter()
         contexts = []
         parsing_validation_seconds = 0.0
@@ -98,6 +101,7 @@ def agentic_pipeline(exp):
             finally:
                 parsing_validation_seconds += perf_counter() - validation_started
             logger.debug(f"\n\nCorrect? {correct}\n\n")
+            cypher_validation = validate_last_cypher_tool_call(question, contexts)
 
             agent_sequence = AgentSequence(
                 description="cypher-agent", responses=cxt.get_agent_responses()
@@ -107,7 +111,9 @@ def agentic_pipeline(exp):
             analysis = QuestionAnalysis(
                 correct=correct,
                 valid_answer_format=valid_format,
-                input_tokens=cxt.initial_input_tokens,
+                final_answer_match=correct,
+                **cypher_validation,
+                **make_input_token_metrics(contexts),
                 output_tokens=cxt.total_output_tokens,
                 n_tool_calls=cxt.n_tool_calls,
                 latency=make_latency_metrics(
@@ -134,10 +140,9 @@ def agentic_pipeline(exp):
             analysis = QuestionAnalysis(
                 correct=False,
                 valid_answer_format=False,
-                input_tokens=sum(
-                    getattr(context, "initial_input_tokens", 0)
-                    for context in contexts
-                ),
+                final_answer_match=False,
+                **validate_last_cypher_tool_call(question, contexts),
+                **make_input_token_metrics(contexts),
                 output_tokens=sum(
                     getattr(context, "total_output_tokens", 0) for context in contexts
                 ),
@@ -161,6 +166,12 @@ def agentic_pipeline(exp):
             completed=completed,
         )
         analyzed_questions.append(aq)
+        logger.info(
+            "Question progress: %d/%d | %s",
+            question_index,
+            question_total,
+            question.uid,
+        )
 
     aqs = AnalyzedQuestions(
         analyzed_questions=analyzed_questions,

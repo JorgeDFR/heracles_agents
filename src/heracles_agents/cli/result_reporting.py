@@ -34,21 +34,29 @@ TERMINAL_QUESTION_COLUMNS = {
     "Question": "question",
     "Solution": "solution",
     "Answer": "answer",
-    "Completed": "completed",
-    "Valid Answer": "valid_answer_format",
-    "Correct": "correct",
-    "Input Tokens": "input_tokens",
+    "Tool Executable": "tool_executable",
+    "Cypher Solution / Grounding Match": "cypher_solution_match",
+    "Final Answer Match": "final_answer_match",
+    "New Input Tokens": "input_tokens",
+    "Processed Input Tokens": "input_tokens_processed",
+    "Cached Input Tokens": "cached_input_tokens",
+    "Cache Write Tokens": "cache_write_input_tokens",
     "Output Tokens": "output_tokens",
+    "Throughput": "output_tokens_per_second",
     "Tool Calls": "n_tool_calls",
 }
 
 TERMINAL_SUMMARY_COLUMNS = {
     "Questions": "questions",
-    "Completed": "completed",
-    "Valid Answer": "valid_answer_format",
-    "Correct": "correct",
-    "Input Tokens": "input_tokens",
+    "Tool Executable": "tool_executable",
+    "Cypher Solution / Grounding Match": "cypher_solution_match",
+    "Final Answer Match": "final_answer_match",
+    "New Input Tokens": "input_tokens",
+    "Processed Input Tokens": "input_tokens_processed",
+    "Cached Input Tokens": "cached_input_tokens",
+    "Cache Write Tokens": "cache_write_input_tokens",
     "Output Tokens": "output_tokens",
+    "Throughput": "output_tokens_per_second",
     "Tool Calls": "n_tool_calls",
 }
 
@@ -69,12 +77,27 @@ class ConfigurationSummary:
     valid_answer_rate: float | None = None
     correct_count: int = 0
     accuracy: float | None = None
+    final_answer_match_count: int = 0
+    final_answer_match_rate: float | None = None
+    cypher_solution_match_count: int = 0
+    cypher_solution_match_evaluated: int = 0
+    cypher_solution_match_rate: float | None = None
+    tool_executable_count: int = 0
+    tool_executable_evaluated: int = 0
+    tool_executable_rate: float | None = None
     input_tokens_total: int = 0
     input_tokens_avg: float | None = None
+    input_tokens_processed_total: int = 0
+    input_tokens_processed_avg: float | None = None
+    cached_input_tokens_total: int = 0
+    cached_input_tokens_avg: float | None = None
+    cache_write_input_tokens_total: int = 0
+    cache_write_input_tokens_avg: float | None = None
     output_tokens_total: int = 0
     output_tokens_avg: float | None = None
     tool_calls_total: int = 0
     tool_calls_avg: float | None = None
+    output_tokens_per_second: float | None = None
     end_to_end_latency_total: float | None = None
     end_to_end_latency_avg: float | None = None
     end_to_end_latency_p50: float | None = None
@@ -101,7 +124,16 @@ class QuestionResult:
     completed: bool
     valid_answer_format: bool | None
     correct: bool | None
+    final_answer_match: bool | None
+    cypher_solution_match: bool | None
+    tool_executable: bool | None
+    generated_cypher: str | None
+    cypher_tool_output: Any
+    cypher_validation_issues: list[str]
     input_tokens: int | None
+    input_tokens_processed: int | None
+    cached_input_tokens: int | None
+    cache_write_input_tokens: int | None
     output_tokens: int | None
     n_tool_calls: int | None
     latency: dict[str, Any] = field(default_factory=dict)
@@ -246,7 +278,25 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
     completed_count = sum(1 for q in questions if q.completed is True)
     valid_answer_count = sum(1 for q in questions if q.valid_answer_format is True)
     correct_count = sum(1 for q in questions if q.correct is True)
+    final_answer_match_count = sum(1 for q in questions if q.final_answer_match is True)
+    cypher_solution_values = [
+        q.cypher_solution_match
+        for q in questions
+        if q.cypher_solution_match is not None
+    ]
+    tool_executable_values = [
+        q.tool_executable for q in questions if q.tool_executable is not None
+    ]
     input_tokens = [_number_or_zero(q.input_tokens) for q in questions]
+    input_tokens_processed = [
+        _number_or_zero(q.input_tokens_processed) for q in questions
+    ]
+    cached_input_tokens = [
+        _number_or_zero(q.cached_input_tokens) for q in questions
+    ]
+    cache_write_input_tokens = [
+        _number_or_zero(q.cache_write_input_tokens) for q in questions
+    ]
     output_tokens = [_number_or_zero(q.output_tokens) for q in questions]
     tool_calls = [_number_or_zero(q.n_tool_calls) for q in questions]
 
@@ -263,6 +313,18 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
     ]
     known_costs = [cost for cost in costs if cost is not None]
     cost_total = round(sum(known_costs), 12) if known_costs else None
+    provider_output_tokens = 0
+    provider_generation_seconds = 0.0
+    for q in questions:
+        for call in (q.cost or {}).get("llm_calls", []):
+            generation_seconds = _coerce_float(
+                call.get("generation_time_seconds")
+                or call.get("observed_call_seconds")
+            )
+            call_output_tokens = _coerce_int(call.get("output_tokens"))
+            if generation_seconds and call_output_tokens is not None:
+                provider_generation_seconds += generation_seconds
+                provider_output_tokens += call_output_tokens
 
     return ConfigurationSummary(
         questions=n_questions,
@@ -272,12 +334,43 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
         valid_answer_rate=valid_answer_count / n_questions,
         correct_count=correct_count,
         accuracy=correct_count / n_questions,
+        final_answer_match_count=final_answer_match_count,
+        final_answer_match_rate=final_answer_match_count / n_questions,
+        cypher_solution_match_count=sum(value is True for value in cypher_solution_values),
+        cypher_solution_match_evaluated=len(cypher_solution_values),
+        cypher_solution_match_rate=(
+            sum(value is True for value in cypher_solution_values)
+            / len(cypher_solution_values)
+            if cypher_solution_values
+            else None
+        ),
+        tool_executable_count=sum(value is True for value in tool_executable_values),
+        tool_executable_evaluated=len(tool_executable_values),
+        tool_executable_rate=(
+            sum(value is True for value in tool_executable_values)
+            / len(tool_executable_values)
+            if tool_executable_values
+            else None
+        ),
         input_tokens_total=int(sum(input_tokens)),
         input_tokens_avg=sum(input_tokens) / n_questions,
+        input_tokens_processed_total=int(sum(input_tokens_processed)),
+        input_tokens_processed_avg=sum(input_tokens_processed) / n_questions,
+        cached_input_tokens_total=int(sum(cached_input_tokens)),
+        cached_input_tokens_avg=sum(cached_input_tokens) / n_questions,
+        cache_write_input_tokens_total=int(sum(cache_write_input_tokens)),
+        cache_write_input_tokens_avg=sum(cache_write_input_tokens) / n_questions,
         output_tokens_total=int(sum(output_tokens)),
         output_tokens_avg=sum(output_tokens) / n_questions,
         tool_calls_total=int(sum(tool_calls)),
         tool_calls_avg=sum(tool_calls) / n_questions,
+        output_tokens_per_second=(
+            provider_output_tokens / provider_generation_seconds
+            if provider_generation_seconds > 0
+            else sum(output_tokens) / sum(llm)
+            if llm and sum(llm) > 0
+            else None
+        ),
         end_to_end_latency_total=_sum_or_none(e2e),
         end_to_end_latency_avg=_avg_or_none(e2e),
         end_to_end_latency_p50=_percentile(e2e, 50),
@@ -503,7 +596,29 @@ def _parse_questions(
                     analysis.get("valid_answer_format")
                 ),
                 correct=_as_optional_bool(analysis.get("correct")),
+                final_answer_match=_as_optional_bool(
+                    analysis.get("final_answer_match", analysis.get("correct"))
+                ),
+                cypher_solution_match=_as_optional_bool(
+                    analysis.get("cypher_solution_match")
+                ),
+                tool_executable=_as_optional_bool(analysis.get("tool_executable")),
+                generated_cypher=_as_optional_text(analysis.get("generated_cypher")),
+                cypher_tool_output=analysis.get("cypher_tool_output"),
+                cypher_validation_issues=[
+                    str(issue)
+                    for issue in (analysis.get("cypher_validation_issues") or [])
+                ],
                 input_tokens=_coerce_int(analysis.get("input_tokens")),
+                input_tokens_processed=_coerce_int(
+                    analysis.get("input_tokens_processed", analysis.get("input_tokens"))
+                ),
+                cached_input_tokens=_coerce_int(
+                    analysis.get("cached_input_tokens")
+                ),
+                cache_write_input_tokens=_coerce_int(
+                    analysis.get("cache_write_input_tokens")
+                ),
                 output_tokens=_coerce_int(analysis.get("output_tokens")),
                 n_tool_calls=_coerce_int(analysis.get("n_tool_calls")),
                 latency=latency if isinstance(latency, dict) else {},
@@ -577,8 +692,17 @@ def _terminal_question_row(question: QuestionResult) -> dict[str, Any]:
         "completed": question.completed,
         "valid_answer_format": question.valid_answer_format,
         "correct": question.correct,
+        "final_answer_match": question.final_answer_match,
+        "cypher_solution_match": question.cypher_solution_match,
+        "tool_executable": question.tool_executable,
         "input_tokens": question.input_tokens,
+        "input_tokens_processed": question.input_tokens_processed,
+        "cached_input_tokens": question.cached_input_tokens,
+        "cache_write_input_tokens": question.cache_write_input_tokens,
         "output_tokens": question.output_tokens,
+        "output_tokens_per_second": question.latency.get(
+            "output_tokens_per_second"
+        ),
         "n_tool_calls": question.n_tool_calls,
         "n_sequences": question.n_sequences,
     }
@@ -592,11 +716,39 @@ def _terminal_summary_row(summary: ConfigurationSummary) -> dict[str, Any]:
             summary.valid_answer_count, summary.questions
         ),
         "correct": _count_rate(summary.correct_count, summary.questions),
+        "final_answer_match": _count_rate(
+            summary.final_answer_match_count, summary.questions
+        ),
+        "cypher_solution_match": _count_rate(
+            summary.cypher_solution_match_count,
+            summary.cypher_solution_match_evaluated,
+        ),
+        "tool_executable": _count_rate(
+            summary.tool_executable_count,
+            summary.tool_executable_evaluated,
+        ),
         "input_tokens": _total_avg(
             summary.input_tokens_total, summary.input_tokens_avg
         ),
+        "input_tokens_processed": _total_avg(
+            summary.input_tokens_processed_total,
+            summary.input_tokens_processed_avg,
+        ),
+        "cached_input_tokens": _total_avg(
+            summary.cached_input_tokens_total,
+            summary.cached_input_tokens_avg,
+        ),
+        "cache_write_input_tokens": _total_avg(
+            summary.cache_write_input_tokens_total,
+            summary.cache_write_input_tokens_avg,
+        ),
         "output_tokens": _total_avg(
             summary.output_tokens_total, summary.output_tokens_avg
+        ),
+        "output_tokens_per_second": (
+            f"{summary.output_tokens_per_second:.2f} tok/s"
+            if summary.output_tokens_per_second is not None
+            else None
         ),
         "n_tool_calls": _total_avg(summary.tool_calls_total, summary.tool_calls_avg),
     }
@@ -736,17 +888,21 @@ def _structured_message(response: dict[str, Any], index: int) -> dict[str, Any]:
     parsed_response = response.get("parsed_response")
     raw_message = _literal_message(raw_response)
 
-    role = None
-    content = None
-    tool_name = None
-    tool_calls = None
+    role = response.get("role")
+    content = response.get("content")
+    kind = response.get("kind")
+    reasoning = response.get("reasoning")
+    tool_name = response.get("tool_name")
+    tool_args = response.get("tool_args")
+    tool_calls = response.get("tool_calls")
     metadata = {}
     if isinstance(raw_message, dict):
-        role = raw_message.get("role")
+        role = role or raw_message.get("role")
         message_type = raw_message.get("type")
-        tool_name = raw_message.get("tool_name") or raw_message.get("name")
-        tool_calls = raw_message.get("tool_calls")
-        content = raw_message.get("content")
+        tool_name = tool_name or raw_message.get("tool_name") or raw_message.get("name")
+        tool_calls = tool_calls or raw_message.get("tool_calls")
+        reasoning = reasoning or raw_message.get("reasoning") or raw_message.get("thinking")
+        content = content if content not in (None, "") else raw_message.get("content")
         if message_type == "function_call_output":
             role = role or "tool"
             content = raw_message.get("output", content)
@@ -767,6 +923,10 @@ def _structured_message(response: dict[str, Any], index: int) -> dict[str, Any]:
                 "toolResult",
                 "tool_name",
                 "name",
+                "reasoning",
+                "thinking",
+                "tool_args",
+                "kind",
             }
             and value not in (None, "", [], {})
         }
@@ -778,14 +938,22 @@ def _structured_message(response: dict[str, Any], index: int) -> dict[str, Any]:
     if content in (None, ""):
         content = parsed_text if parsed_text not in (None, "") else raw_response
 
+    is_tool_response = role == "tool" or kind == "tool_result"
+    is_tool_call = not is_tool_response and bool(
+        kind == "tool_call" or tool_name or tool_calls
+    )
+
     return {
         "role": _as_text(role or f"Message {index}"),
+        "kind": kind,
         "content": content,
+        "reasoning": reasoning,
         "tool_name": tool_name,
+        "tool_args": tool_args,
         "tool_calls": tool_calls,
         "parsed_response": parsed_text,
-        "metadata": metadata or None,
-        "raw_response": raw_response,
+        "metadata": None if is_tool_response else metadata or None,
+        "raw_message": raw_response if is_tool_call else None,
     }
 
 
@@ -954,7 +1122,16 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "completed": question.completed,
                         "valid_answer_format": question.valid_answer_format,
                         "correct": question.correct,
+                        "final_answer_match": question.final_answer_match,
+                        "cypher_solution_match": question.cypher_solution_match,
+                        "tool_executable": question.tool_executable,
+                        "generated_cypher": question.generated_cypher,
+                        "cypher_tool_output": question.cypher_tool_output,
+                        "cypher_validation_issues": question.cypher_validation_issues,
                         "input_tokens": question.input_tokens,
+                        "input_tokens_processed": question.input_tokens_processed,
+                        "cached_input_tokens": question.cached_input_tokens,
+                        "cache_write_input_tokens": question.cache_write_input_tokens,
                         "output_tokens": question.output_tokens,
                         "n_tool_calls": question.n_tool_calls,
                         "latency": question.latency,
@@ -1016,13 +1193,19 @@ def _artifact_payload(sources: Sequence[ResultSource]) -> list[dict[str, Any]]:
 
     for source in sources:
         add_artifact("result", source.path)
-        source_experiment = source.metadata.get("source_experiment")
-        if source_experiment:
+        benchmark_manifest = source.metadata.get("benchmark_manifest")
+        if benchmark_manifest:
             add_artifact(
-                "source_experiment",
-                str(source_experiment),
+                "benchmark_manifest",
+                str(benchmark_manifest),
                 scan_references=True,
             )
+            # Runtime sweep YAMLs are temporary implementation details. The
+            # repository-owned benchmark manifest is the reproducible source.
+            continue
+        source_experiment = source.metadata.get("source_experiment")
+        if source_experiment:
+            add_artifact("source_experiment", str(source_experiment), scan_references=True)
     return artifacts
 
 
@@ -1042,6 +1225,11 @@ def _iter_artifact_references(value: Any, key: str = "file"):
 def _resolve_artifact_path(value: str | Path, *, base_dir: Path | None = None) -> Path:
     expanded = str(value).replace("${HERACLES_AGENTS_PATH}", str(_PROJECT_ROOT))
     expanded = expanded.replace("$HERACLES_AGENTS_PATH", str(_PROJECT_ROOT))
+    benchmark_root_value = os.environ.get("HERACLES_BENCHMARK_PATH")
+    if benchmark_root_value:
+        expanded = expanded.replace(
+            "${HERACLES_BENCHMARK_PATH}", benchmark_root_value
+        ).replace("$HERACLES_BENCHMARK_PATH", benchmark_root_value)
     candidate = Path(os.path.expandvars(expanded)).expanduser()
     if candidate.is_absolute():
         return candidate.resolve()
@@ -1049,6 +1237,8 @@ def _resolve_artifact_path(value: str | Path, *, base_dir: Path | None = None) -
     candidates = []
     if base_dir is not None:
         candidates.append(base_dir / candidate)
+    if benchmark_root_value:
+        candidates.append(Path(benchmark_root_value) / candidate)
     candidates.extend((Path.cwd() / candidate, _PROJECT_ROOT / candidate))
     return next(
         (path.resolve() for path in candidates if path.exists()),
@@ -1057,10 +1247,16 @@ def _resolve_artifact_path(value: str | Path, *, base_dir: Path | None = None) -
 
 
 def _artifact_file_info(path: Path) -> dict[str, Any]:
-    try:
-        display_path = str(path.relative_to(_PROJECT_ROOT))
-    except ValueError:
-        display_path = str(path)
+    display_path = str(path)
+    display_roots = [_PROJECT_ROOT]
+    if os.environ.get("HERACLES_BENCHMARK_PATH"):
+        display_roots.insert(0, Path(os.environ["HERACLES_BENCHMARK_PATH"]))
+    for root in display_roots:
+        try:
+            display_path = str(path.relative_to(root))
+            break
+        except ValueError:
+            continue
     info: dict[str, Any] = {"path": display_path, "exists": path.is_file()}
     if path.is_file():
         stat = path.stat()
@@ -1373,10 +1569,23 @@ _HTML_TEMPLATE = """<!doctype html>
       max-height: calc(100vh - 140px);
       overflow: auto;
     }
+    .detail h4 { margin: 16px 0 8px; font-size: 13px; }
     .detail h2:first-child { margin-top: 0; }
     .sequence-group { margin-top: 18px; }
     .sequence-group h4 { margin: 0 0 8px; }
     .message-list { display: grid; gap: 10px; }
+    .validation-detail-group { margin: 16px 0 0; }
+    .validation-detail-group > summary {
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .validation-detail-group-body {
+      border-top: 1px solid var(--line);
+      margin-top: 10px;
+      padding-top: 2px;
+    }
     .message-card {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -1413,7 +1622,7 @@ _HTML_TEMPLATE = """<!doctype html>
       gap: 6px 10px;
       margin: 8px 0;
     }
-    .kv dt { color: var(--muted); }
+    .kv dt { color: var(--muted); font-weight: 650; }
     .kv dd { margin: 0; overflow-wrap: anywhere; }
     .empty {
       padding: 16px;
@@ -1546,6 +1755,20 @@ _HTML_TEMPLATE = """<!doctype html>
     }
     function cost(q) {
       return q.cost && q.cost.total_cost_usd !== undefined ? q.cost.total_cost_usd : null;
+    }
+    function questionThroughput(q) {
+      const calls = q.cost && Array.isArray(q.cost.llm_calls) ? q.cost.llm_calls : [];
+      const timed = calls.filter(call => Number(
+        call.generation_time_seconds || call.observed_call_seconds
+      ) > 0);
+      if (timed.length) {
+        const seconds = timed.reduce((total, call) => total + Number(
+          call.generation_time_seconds || call.observed_call_seconds
+        ), 0);
+        const tokens = timed.reduce((total, call) => total + Number(call.output_tokens || 0), 0);
+        return seconds > 0 ? tokens / seconds : null;
+      }
+      return metric(q, "output_tokens_per_second");
     }
     function localSummary(row, key) {
       return row.local_resources_summary ? row.local_resources_summary[key] : null;
@@ -1735,11 +1958,15 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
         { key: "questions", label: "Questions", group: "quality", render: r => text(r.summary.questions), sortValue: r => r.summary.questions },
-        { key: "completed_rate", label: "Completed", group: "quality", render: r => percent((r.summary.completed_rate || 0) * 100), sortValue: r => r.summary.completed_rate },
-        { key: "valid_answer_rate", label: "Valid Answer", group: "quality", render: r => percent((r.summary.valid_answer_rate || 0) * 100), sortValue: r => r.summary.valid_answer_rate },
-        { key: "accuracy", label: "Accuracy", group: "quality", render: r => percent((r.summary.accuracy || 0) * 100), sortValue: r => r.summary.accuracy },
-        { key: "input_tokens_total", label: "Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total, visible: hasValue(r => r.summary.input_tokens_total) },
+        { key: "tool_executable_rate", label: "Tool Executable", group: "quality", render: r => percent((r.summary.tool_executable_rate || 0) * 100), sortValue: r => r.summary.tool_executable_rate, visible: hasRecorded(r => r.summary.tool_executable_rate) },
+        { key: "cypher_solution_match_rate", label: "Cypher Solution / Grounding Match", group: "quality", render: r => percent((r.summary.cypher_solution_match_rate || 0) * 100), sortValue: r => r.summary.cypher_solution_match_rate, visible: hasRecorded(r => r.summary.cypher_solution_match_rate) },
+        { key: "final_answer_match_rate", label: "Final Answer Match", group: "quality", render: r => percent((r.summary.final_answer_match_rate || 0) * 100), sortValue: r => r.summary.final_answer_match_rate },
+        { key: "input_tokens_total", label: "New Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total, visible: hasValue(r => r.summary.input_tokens_total) },
+        { key: "input_tokens_processed_total", label: "Processed Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_processed_total), sortValue: r => r.summary.input_tokens_processed_total, visible: hasValue(r => r.summary.input_tokens_processed_total) },
+        { key: "cached_input_tokens_total", label: "Cached Input Tokens", group: "tokens", render: r => text(r.summary.cached_input_tokens_total), sortValue: r => r.summary.cached_input_tokens_total, visible: hasValue(r => r.summary.cached_input_tokens_total) },
+        { key: "cache_write_input_tokens_total", label: "Cache Write Tokens", group: "tokens", render: r => text(r.summary.cache_write_input_tokens_total), sortValue: r => r.summary.cache_write_input_tokens_total, visible: hasValue(r => r.summary.cache_write_input_tokens_total) },
         { key: "output_tokens_total", label: "Output Tokens", group: "tokens", render: r => text(r.summary.output_tokens_total), sortValue: r => r.summary.output_tokens_total, visible: hasValue(r => r.summary.output_tokens_total) },
+        { key: "output_tokens_per_second", label: "Throughput", group: "tokens", render: r => tokensPerSecond(r.summary.output_tokens_per_second), sortValue: r => r.summary.output_tokens_per_second, visible: hasRecorded(r => r.summary.output_tokens_per_second) },
         { key: "tool_calls_total", label: "Tool Calls", group: "tokens", render: r => text(r.summary.tool_calls_total), sortValue: r => r.summary.tool_calls_total, visible: hasValue(r => r.summary.tool_calls_total) },
         { key: "end_to_end_latency_avg", label: "Average End-to-End Latency", group: "latency", render: r => seconds(r.summary.end_to_end_latency_avg), sortValue: r => r.summary.end_to_end_latency_avg, visible: hasValue(r => r.summary.end_to_end_latency_avg) },
         { key: "cost_total_usd", label: "Cost", group: "cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd, visible: hasValue(r => r.summary.cost_total_usd) },
@@ -1782,16 +2009,19 @@ _HTML_TEMPLATE = """<!doctype html>
     }
     function renderQuestions() {
       const columns = [
-        { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
         { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
         { key: "name", label: "Topic" },
-        { key: "correct", label: "Correct", group: "quality", render: q => bool(q.correct) },
-        { key: "valid_answer_format", label: "Valid Answer", group: "quality", render: q => bool(q.valid_answer_format) },
-        { key: "completed", label: "Completed", group: "quality", render: q => bool(q.completed) },
-        { key: "input_tokens", label: "Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens) },
+        { key: "tool_executable", label: "Tool Executable", group: "quality", render: q => bool(q.tool_executable), visible: hasRecorded(q => q.tool_executable) },
+        { key: "cypher_solution_match", label: "Cypher Solution / Grounding Match", group: "quality", render: q => bool(q.cypher_solution_match), visible: hasRecorded(q => q.cypher_solution_match) },
+        { key: "final_answer_match", label: "Final Answer Match", group: "quality", render: q => bool(q.final_answer_match) },
+        { key: "input_tokens", label: "New Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens) },
+        { key: "input_tokens_processed", label: "Processed Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens_processed) },
+        { key: "cached_input_tokens", label: "Cached Input Tokens", group: "tokens", visible: hasValue(q => q.cached_input_tokens) },
+        { key: "cache_write_input_tokens", label: "Cache Write Tokens", group: "tokens", visible: hasValue(q => q.cache_write_input_tokens) },
         { key: "output_tokens", label: "Output Tokens", group: "tokens", visible: hasValue(q => q.output_tokens) },
+        { key: "latency.output_tokens_per_second", label: "Throughput", group: "tokens", render: q => tokensPerSecond(questionThroughput(q)), sortValue: q => questionThroughput(q), visible: hasRecorded(q => questionThroughput(q)) },
         { key: "n_tool_calls", label: "Tool Calls", group: "tokens", visible: hasValue(q => q.n_tool_calls) },
         { key: "latency.end_to_end_seconds", label: "End-to-End Latency", group: "latency", render: q => seconds(metric(q, "end_to_end_seconds")), visible: hasValue(q => metric(q, "end_to_end_seconds")) },
         { key: "latency.llm_call_seconds", label: "LLM Latency", group: "latency", render: q => seconds(metric(q, "llm_call_seconds")), visible: hasValue(q => metric(q, "llm_call_seconds")) },
@@ -1849,21 +2079,34 @@ _HTML_TEMPLATE = """<!doctype html>
     }
     function renderMessage(message, index) {
       const content = prettyValue(message.content);
+      const isToolResponse = message.role === "tool" || message.kind === "tool_result";
+      const isToolCall = !isToolResponse && (
+        message.kind === "tool_call" || message.tool_name || message.tool_calls
+      );
+      const reasoningHtml = message.reasoning
+        ? `<h5>Reasoning</h5><pre>${escapeHtml(prettyValue(message.reasoning))}</pre>`
+        : "";
+      const toolArgsHtml = message.tool_args
+        ? `<h5>Tool Arguments</h5><pre>${escapeHtml(prettyValue(message.tool_args))}</pre>`
+        : "";
       const toolCallsHtml = message.tool_calls
         ? `<h5>Tool Calls</h5><pre>${escapeHtml(prettyValue(message.tool_calls))}</pre>`
         : "";
-      const metadataHtml = message.metadata
+      const metadataHtml = message.metadata && !isToolResponse
         ? `<h5>Metadata</h5><pre>${escapeHtml(prettyValue(message.metadata))}</pre>`
         : "";
-      const rawHtml = message.raw_response !== null && message.raw_response !== undefined
-        ? `<details><summary>Raw Response</summary><pre>${escapeHtml(prettyValue(message.raw_response))}</pre></details>`
-        : "";
+      const contentHtml = isToolCall
+        ? `<details><summary>Raw message</summary><pre>${escapeHtml(prettyValue(message.raw_message || message.content))}</pre></details>`
+        : `<pre>${escapeHtml(content)}</pre>`;
       const toolName = message.tool_name ? ` · ${escapeHtml(message.tool_name)}` : "";
+      const messageLabel = message.kind && message.kind !== "assistant_text"
+        ? message.kind
+        : message.role;
       return `
         <article class="message-card">
-          <div class="message-role">${index}. ${escapeHtml(roleLabel(message.role))}${toolName}</div>
-          <pre>${escapeHtml(content)}</pre>
-          ${toolCallsHtml}${metadataHtml}${rawHtml}
+          <div class="message-role">${index}. ${escapeHtml(roleLabel(messageLabel))}${toolName}</div>
+          ${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}
+          ${contentHtml}
         </article>
       `;
     }
@@ -1890,20 +2133,31 @@ _HTML_TEMPLATE = """<!doctype html>
           <dt>Source</dt><dd>${escapeHtml(q.source_path)}</dd>
           <dt>Configuration</dt><dd>${escapeHtml(q.configuration)}</dd>
           <dt>Provider / Model</dt><dd>${escapeHtml(q.provider_model)}</dd>
-          <dt>Correct</dt><dd>${bool(q.correct)}</dd>
-          <dt>Valid Answer</dt><dd>${bool(q.valid_answer_format)}</dd>
-          <dt>Completed</dt><dd>${bool(q.completed)}</dd>
-          <dt>Input Tokens</dt><dd>${escapeHtml(q.input_tokens)}</dd>
+          <dt>Tool Executable</dt><dd>${bool(q.tool_executable)}</dd>
+          <dt>Cypher Solution / Grounding Match</dt><dd>${bool(q.cypher_solution_match)}</dd>
+          <dt>Final Answer Match</dt><dd>${bool(q.final_answer_match)}</dd>
+          <dt>New Input Tokens</dt><dd>${escapeHtml(q.input_tokens)}</dd>
+          <dt>Processed Input Tokens</dt><dd>${escapeHtml(q.input_tokens_processed)}</dd>
+          <dt>Cached Input Tokens</dt><dd>${escapeHtml(q.cached_input_tokens)}</dd>
+          <dt>Cache Write Tokens</dt><dd>${escapeHtml(q.cache_write_input_tokens)}</dd>
           <dt>Output Tokens</dt><dd>${escapeHtml(q.output_tokens)}</dd>
           <dt>Tool Calls</dt><dd>${escapeHtml(q.n_tool_calls)}</dd>
         </dl>
         <h4>Question</h4><pre>${escapeHtml(q.question)}</pre>
         <h4>Solution</h4><pre>${escapeHtml(q.solution)}</pre>
         <h4>Answer</h4><pre>${escapeHtml(q.answer)}</pre>
+        <h4>Generated Cypher</h4><pre>${escapeHtml(prettyValue(q.generated_cypher))}</pre>
+        <h4>Cypher Tool Output</h4><pre>${escapeHtml(prettyValue(q.cypher_tool_output))}</pre>
+        <h4>Cypher Validation Issues</h4><pre>${escapeHtml(prettyValue(q.cypher_validation_issues || []))}</pre>
         <h4>Latency (s)</h4><pre>${escapeHtml(JSON.stringify(q.latency || {}, null, 2))}</pre>
         <h4>Cost</h4><pre>${escapeHtml(JSON.stringify(q.cost || {}, null, 2))}</pre>
         <h4>Local Resources</h4><pre>${escapeHtml(JSON.stringify(q.configuration_local_resources || q.local_resources || {}, null, 2))}</pre>
-        <h4>Messages</h4>${sequenceHtml || '<div class="muted">No messages recorded.</div>'}
+        <details class="validation-detail-group">
+          <summary>Messages (${(q.sequences || []).reduce((total, sequence) => total + (sequence.messages || []).length, 0)})</summary>
+          <div class="validation-detail-group-body">
+            ${sequenceHtml || '<div class="muted">No messages recorded.</div>'}
+          </div>
+        </details>
       `;
     }
     function selectTab(button) {

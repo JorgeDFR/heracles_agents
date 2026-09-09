@@ -27,6 +27,7 @@ from heracles_agents.local_metrics.ollama_runtime import (
     extract_ollama_response_metrics,
     summarize_ollama_metrics,
 )
+from heracles_agents.pipelines.local_metrics import _warm_up_ollama
 
 
 def test_docker_proxy_url_parser_supports_tcp_and_http():
@@ -253,6 +254,41 @@ def test_agent_context_records_ollama_runtime_metrics():
     context.record_local_llm_runtime_metrics(response)
 
     assert context.local_llm_runtime_metrics[0]["output_tokens_per_second"] == 4
+
+
+def test_ollama_warmup_runs_before_measurement_and_records_result(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b"{}"
+
+    requests = []
+    monkeypatch.setattr(
+        "heracles_agents.pipelines.local_metrics.urllib.request.urlopen",
+        lambda request, timeout: requests.append((request, timeout)) or Response(),
+    )
+    monitor = LocalResourceMonitor(
+        LocalMetricsConfig(enabled=True, warmup_enabled=True, warmup_requests=1)
+    )
+    exp = SimpleNamespace(
+        phases={
+            "main": SimpleNamespace(
+                client=SimpleNamespace(client_type="ollama"),
+                model_info=SimpleNamespace(model="test-model"),
+            )
+        }
+    )
+
+    _warm_up_ollama(exp, monitor)
+
+    assert len(requests) == 1
+    assert monitor.warmup["requests"][0]["model"] == "test-model"
+    assert monitor.warmup["requests"][0]["succeeded"] is True
 
 
 def test_monitor_returns_warnings_when_sources_are_unavailable():

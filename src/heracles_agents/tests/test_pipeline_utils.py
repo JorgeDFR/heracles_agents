@@ -13,7 +13,7 @@ def test_answer_formatting_guidance_by_output_type():
         SimpleNamespace(output_type="SLDP", answer_type_hint=True),
         question,
     )
-    assert "SLDP Equality Language" in sldp
+    assert "SLDP Language" in sldp
     assert "<answer>" in sldp
     assert "Your answer should be an SLDP set" in sldp
 

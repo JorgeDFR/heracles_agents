@@ -224,6 +224,10 @@ def run_experiment(
             continue
 
         logger.info("Running configuration: %s", configuration_name)
+        logger.info(
+            "Question sweep size: %d",
+            len(getattr(experiment_config, "questions", [])),
+        )
         if debug:
             result_path = (
                 output_path_for_configuration(
@@ -254,10 +258,11 @@ def run_experiment(
     elapsed_s = perf_counter() - started_at
     metadata = {
         **experiment.metadata,
-        "source_experiment": str(experiment_path),
         "elapsed_seconds": round(elapsed_s, 3),
         "failed_configurations": failures,
     }
+    if "benchmark_manifest" not in metadata:
+        metadata["source_experiment"] = str(experiment_path)
     if not has_model_sweeps:
         metadata["llm_configurations"] = build_llm_metadata(experiment, set(results))
 

@@ -37,12 +37,17 @@ class LocalMetricsConfig:
     baseline_adjust_gpu: bool = True
     record_samples: bool = False
     samples_output_path: str | None = None
+    warmup_enabled: bool = True
+    warmup_requests: int = 1
+    warmup_prompt: str = "Reply with OK."
+    warmup_timeout_seconds: float = 7200.0
 
 
 @dataclass
 class LocalResourceMeasurement:
     config: LocalMetricsConfig
     baseline_gpu_samples: list[GpuStatsSample]
+    warmup: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     docker_samples: list[DockerContainerStatsSample] = field(default_factory=list)
     gpu_samples: list[GpuStatsSample] = field(default_factory=list)
@@ -97,6 +102,7 @@ class LocalResourceMeasurement:
             "sample_interval_seconds": self.config.sample_interval_seconds,
             "baseline_seconds": self.config.gpu_baseline_seconds,
             "baseline_adjusted": self.config.baseline_adjust_gpu,
+            "warmup": dict(self.warmup),
             "telemetry": telemetry,
             "cpu": cpu,
             "ram": ram,
@@ -115,6 +121,8 @@ class LocalResourceMeasurement:
                     "sample_interval_seconds": self.config.sample_interval_seconds,
                     "gpu_baseline_seconds": self.config.gpu_baseline_seconds,
                     "baseline_adjust_gpu": self.config.baseline_adjust_gpu,
+                    "warmup_enabled": self.config.warmup_enabled,
+                    "warmup_requests": self.config.warmup_requests,
                 },
                 "telemetry": self._telemetry_summary_locked(),
                 "poll_timestamps": {
@@ -255,6 +263,7 @@ class LocalResourceMonitor:
         self.baseline_gpu_samples: list[GpuStatsSample] = []
         self.warnings: list[str] = []
         self._baseline_collected = False
+        self.warmup: dict[str, Any] = {}
 
     def collect_baseline(self) -> None:
         if not self.config.enabled or self._baseline_collected:
@@ -286,6 +295,7 @@ class LocalResourceMonitor:
         measurement = LocalResourceMeasurement(
             config=self.config,
             baseline_gpu_samples=list(self.baseline_gpu_samples),
+            warmup=dict(self.warmup),
             warnings=list(self.warnings),
         )
         measurement.start()
@@ -344,6 +354,10 @@ def config_from_mapping(data: dict[str, Any] | None) -> LocalMetricsConfig:
             if data.get("samples_output_path")
             else None
         ),
+        warmup_enabled=_as_bool(data.get("warmup_enabled"), True),
+        warmup_requests=max(1, int(data.get("warmup_requests", 1))),
+        warmup_prompt=str(data.get("warmup_prompt") or "Reply with OK."),
+        warmup_timeout_seconds=float(data.get("warmup_timeout_seconds", 7200)),
     )
 
 
