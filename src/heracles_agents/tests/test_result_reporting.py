@@ -375,9 +375,9 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert 'label: "Reasoning Tokens"' in html
     assert 'label: "Reasoning Mode"' in html
     assert 'label: "Reasoning Effort"' in html
-    assert 'label: "Temperature"' in html
-    assert 'label: "Seed"' in html
-    assert 'label: "Parameters Required"' in html
+    assert 'label: "Temperature"' not in html
+    assert 'label: "Seed"' not in html
+    assert 'label: "Parameters Required"' not in html
     assert "New Input Tokens" not in html
     assert "Processed Input Tokens" not in html
     assert "Cache Write Tokens" not in html
@@ -403,8 +403,8 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert '<article class="message-card">' in html
     assert (
         'const bodyHtml = isToolCall\n'
-        '        ? `${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${contentHtml}`\n'
-        '        : `${contentHtml}${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}`;'
+        '        ? `${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${rawMessageHtml}`\n'
+        '        : `${contentHtml}${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${rawMessageHtml}`;'
         in html
     )
     assert "Raw Response" not in html
@@ -416,9 +416,6 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert "Parsed Response" not in html
     assert "openrouter" in html
     assert "Reasoning Support" in html
-    assert "Supported Efforts" in html
-    assert "Temperature Supported" in html
-    assert "Seed Supported" in html
     assert '"provider": "openrouter"' in html
     assert '"providers": ["openrouter"]' in html
     assert html.index(">Provider Models</button>") < html.index(">Overview</button>")
@@ -507,6 +504,13 @@ def test_html_payload_structures_saved_responses_as_messages(tmp_path):
             ),
             "parsed_response": "Preparing the query",
         },
+        {
+            "raw_response": (
+                "role='assistant' content='' thinking='Only reasoning text' "
+                "images=None tool_name=None tool_calls=None"
+            ),
+            "parsed_response": "Only reasoning text",
+        },
     ]
     source = load_result_file(write_yaml(tmp_path, "results.yaml", data))
 
@@ -533,6 +537,11 @@ def test_html_payload_structures_saved_responses_as_messages(tmp_path):
             }
         }
     ]
+    assert messages[2]["raw_message"].startswith("role='assistant'")
+    assert messages[3]["role"] == "assistant"
+    assert messages[3]["content"] == ""
+    assert messages[3]["reasoning"] == "Only reasoning text"
+    assert messages[3]["raw_message"].startswith("role='assistant'")
 
 
 def test_html_payload_prefers_structured_assistant_reasoning_and_tool_calls(tmp_path):

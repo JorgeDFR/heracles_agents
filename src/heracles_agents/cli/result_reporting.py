@@ -983,13 +983,21 @@ def _structured_message(response: dict[str, Any], index: int) -> dict[str, Any]:
     if role is None:
         role, inferred_content = _role_and_content_from_parsed(parsed_text, index)
         content = content if content not in (None, "") else inferred_content
-    if content in (None, ""):
-        content = parsed_text if parsed_text not in (None, "") else raw_response
 
     is_tool_response = role == "tool" or kind == "tool_result"
     is_tool_call = not is_tool_response and bool(
         kind == "tool_call" or tool_name or tool_calls
     )
+    if content in (None, ""):
+        # An assistant may legitimately return only a thinking field. Preserve
+        # its empty content as an empty message box instead of promoting the
+        # provider repr/raw response into the visible final answer. Tool calls
+        # retain their existing parsed-response normalization.
+        content = (
+            ""
+            if role == "assistant" and not is_tool_call
+            else parsed_text if parsed_text not in (None, "") else raw_response
+        )
 
     return {
         "role": _as_text(role or f"Message {index}"),
@@ -1001,7 +1009,11 @@ def _structured_message(response: dict[str, Any], index: int) -> dict[str, Any]:
         "tool_calls": tool_calls,
         "parsed_response": parsed_text,
         "metadata": None if is_tool_response else metadata or None,
-        "raw_message": raw_response if is_tool_call else None,
+        "raw_message": (
+            raw_response
+            if isinstance(role, str) and role.lower().startswith("assistant")
+            else None
+        ),
     }
 
 
@@ -1655,7 +1667,6 @@ _HTML_TEMPLATE = """<!doctype html>
       background: var(--panel);
       border: 1px solid var(--line);
       padding: 10px 12px;
-      margin: 14px 0;
     }
     summary { cursor: pointer; font-weight: 650; }
     .validation-detail-group { margin: 10px 0; }
@@ -2077,15 +2088,9 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "phase", label: "Phase" },
         { key: "provider", label: "Provider" },
         { key: "model_identifier", label: "Model Identifier" },
+        { key: "reasoning_support", label: "Reasoning Support" },
         { key: "reasoning_mode", label: "Reasoning Mode" },
         { key: "reasoning_effort", label: "Reasoning Effort" },
-        { key: "reasoning_support", label: "Reasoning Support" },
-        { key: "reasoning_supported_efforts", label: "Supported Efforts" },
-        { key: "temperature", label: "Temperature" },
-        { key: "temperature_supported", label: "Temperature Supported", render: r => bool(r.temperature_supported) },
-        { key: "seed", label: "Seed" },
-        { key: "seed_supported", label: "Seed Supported", render: r => bool(r.seed_supported) },
-        { key: "require_parameters", label: "Parameters Required", render: r => bool(r.require_parameters) },
       ];
       renderTable(document.getElementById("providerModels"), columns, report.provider_models);
     }
@@ -2183,12 +2188,13 @@ _HTML_TEMPLATE = """<!doctype html>
       const metadataHtml = message.metadata && !isToolResponse
         ? `<h5>Metadata</h5><pre>${escapeHtml(prettyValue(message.metadata))}</pre>`
         : "";
-      const contentHtml = isToolCall
-        ? `<details><summary>Raw message</summary><pre>${escapeHtml(prettyValue(message.raw_message || message.content))}</pre></details>`
-        : `<pre>${escapeHtml(content)}</pre>`;
+      const contentHtml = isToolCall ? "" : `<pre>${escapeHtml(content)}</pre>`;
+      const rawMessageHtml = text(message.role).toLowerCase().startsWith("assistant") && message.raw_message !== null && message.raw_message !== undefined
+        ? `<details><summary>Raw message</summary><pre>${escapeHtml(prettyValue(message.raw_message))}</pre></details>`
+        : "";
       const bodyHtml = isToolCall
-        ? `${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${contentHtml}`
-        : `${contentHtml}${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}`;
+        ? `${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${rawMessageHtml}`
+        : `${contentHtml}${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${rawMessageHtml}`;
       const toolName = message.tool_name ? ` · ${escapeHtml(message.tool_name)}` : "";
       const messageLabel = message.kind && message.kind !== "assistant_text"
         ? message.kind

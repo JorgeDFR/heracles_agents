@@ -204,8 +204,7 @@ def test_ollama_client_normalizes_reasoning(reasoning, expected_think):
     assert chat.call_args.kwargs["options"] == {}
 
 
-@pytest.mark.parametrize("mode", ["unsupported", "provider_default"])
-def test_ollama_client_omits_uncontrolled_reasoning(mode):
+def test_ollama_client_omits_unsupported_reasoning():
     chat = Mock(return_value="response")
     client = OllamaClientConfig.model_construct()
     client._chat_func = chat
@@ -213,7 +212,7 @@ def test_ollama_client_omits_uncontrolled_reasoning(mode):
         model="model",
         temperature=0.2,
         seed=123,
-        reasoning={"mode": mode, "effort": None},
+        reasoning={"mode": "unsupported", "effort": None},
     )
 
     client.call(model_info, [], "text", [])

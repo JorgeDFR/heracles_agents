@@ -8,12 +8,11 @@ from pydantic import BaseModel, field_validator, model_validator
 class ReasoningSettings(BaseModel):
     """Provider-neutral reasoning intent for one benchmark model.
 
-    ``unsupported`` records that a model has no reasoning control, while
-    ``provider_default`` deliberately leaves the setting uncontrolled. Both
-    modes omit the provider request parameter, but retain different provenance.
+    ``unsupported`` records that a model has no reasoning control. For an
+    enabled model, a null effort requests the provider/model default.
     """
 
-    mode: Literal["enabled", "disabled", "unsupported", "provider_default"]
+    mode: Literal["enabled", "disabled", "unsupported"]
     effort: Optional[str] = None
 
     @field_validator("effort")
@@ -23,7 +22,8 @@ class ReasoningSettings(BaseModel):
             return None
         if not isinstance(value, str) or not value.strip():
             raise ValueError("reasoning effort must be a non-empty string or null")
-        return value.strip()
+        value = value.strip()
+        return None if value == "model_default" else value
 
     @model_validator(mode="after")
     def validate_mode_and_effort(self):
@@ -45,5 +45,7 @@ def get_reasoning_settings(model_info) -> tuple[str | None, str | None]:
     if isinstance(value, bool):
         return ("enabled" if value else "disabled"), None
     if isinstance(value, dict):
-        return value.get("mode"), value.get("effort")
-    return getattr(value, "mode", None), getattr(value, "effort", None)
+        effort = value.get("effort")
+        return value.get("mode"), None if effort == "model_default" else effort
+    effort = getattr(value, "effort", None)
+    return getattr(value, "mode", None), None if effort == "model_default" else effort

@@ -231,6 +231,16 @@ def test_openrouter_client_payload_and_error_mapping():
 def test_openrouter_client_normalizes_optional_request_parameters():
     client = OpenRouterClientConfig.model_construct(require_parameters=False)
 
+    model_default = SimpleNamespace(
+        model="model",
+        temperature=None,
+        seed=None,
+        reasoning={"mode": "enabled", "effort": None},
+    )
+    assert client._build_payload(model_default, [], [])["reasoning"] == {
+        "enabled": True
+    }
+
     disabled = SimpleNamespace(
         model="model",
         temperature=None,

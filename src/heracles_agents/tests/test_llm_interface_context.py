@@ -274,6 +274,53 @@ def test_agent_context_prefers_ollama_response_token_counts(monkeypatch):
     assert context.total_output_tokens == 7
 
 
+def test_agent_context_counts_empty_content_ollama_output_as_reasoning(monkeypatch):
+    response = SimpleNamespace(
+        prompt_eval_count=42,
+        eval_count=7,
+        message=SimpleNamespace(content="", thinking="reasoning only"),
+    )
+    agent = make_agent(
+        client=SimpleNamespace(
+            client_type="ollama",
+            call=lambda *_args: response,
+        )
+    )
+    context = AgentContext(agent)
+    monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda _info: [])
+
+    assert context.call_llm(["history"]) is response
+    assert context.total_output_tokens == 7
+    assert context.reasoning_tokens == 7
+
+
+def test_agent_context_estimates_ollama_reasoning_when_tool_call_is_also_emitted(
+    monkeypatch,
+):
+    response = SimpleNamespace(
+        prompt_eval_count=42,
+        eval_count=20,
+        message=SimpleNamespace(
+            content="",
+            thinking="reasoning before the tool call",
+            tool_calls=[{"function": {"name": "lookup"}}],
+        ),
+    )
+    agent = make_agent(
+        client=SimpleNamespace(
+            client_type="ollama",
+            call=lambda *_args: response,
+        )
+    )
+    context = AgentContext(agent)
+    monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda _info: [])
+    monkeypatch.setattr(llm_interface, "count_text_tokens", lambda *_args: 6)
+
+    assert context.call_llm(["history"]) is response
+    assert context.total_output_tokens == 20
+    assert context.reasoning_tokens == 6
+
+
 def test_agent_context_call_llm_raises_after_retries(monkeypatch):
     agent = make_agent(client=SimpleNamespace(call=lambda *args: (_ for _ in ()).throw(LlmRateLimitError("limited"))))
     context = AgentContext(agent)
@@ -484,6 +531,8 @@ def test_make_latency_metrics_prefers_ollama_response_timings():
 
     latency = make_latency_metrics(contexts=[context], end_to_end_seconds=13.0)
 
+    assert latency.end_to_end_seconds == 6.5
+    assert latency.llm_call_seconds == 6.0
     assert latency.ollama_total_duration_seconds == 10.0
     assert latency.load_duration_seconds == 1.0
     assert latency.prompt_eval_duration_seconds == 2.0

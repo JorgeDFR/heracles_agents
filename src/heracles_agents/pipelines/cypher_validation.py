@@ -1,4 +1,4 @@
-"""Validation of the final Cypher tool call against a benchmark question."""
+"""Validation of Cypher tool calls against a benchmark question."""
 
 from __future__ import annotations
 
@@ -8,16 +8,16 @@ from typing import Any
 
 from sldp.sldp_lang import lark_parse_sldp, sldp_equals
 
-
 _SCENE_SYMBOL = re.compile(r"\b(?:O|R|P|M)\d+\b", re.IGNORECASE)
 
 
 def validate_last_cypher_tool_call(question, contexts) -> dict[str, Any]:
     """Return independent execution and solution-grounding evidence.
 
-    The last Cypher call is authoritative because an agent may repair an invalid
-    query in a later iteration. A missing call is represented as ``None`` rather
-    than a failure: direct-symbol PDDL questions do not necessarily need Cypher.
+    The last Cypher call remains authoritative for QA retries and for reported
+    query/execution fields. PDDL grounding is accumulated across executable calls
+    because separate calls may ground separate clauses of a compound goal. A
+    missing call is represented as ``None`` rather than a failure.
     """
 
     calls = [
@@ -46,10 +46,12 @@ def validate_last_cypher_tool_call(question, contexts) -> dict[str, Any]:
         )
     else:
         rows = call.get("rows")
-        comparison_type = getattr(question.correctness_comparator, "comparison_type", "")
+        comparison_type = getattr(
+            question.correctness_comparator, "comparison_type", ""
+        )
         if comparison_type == "PDDL":
-            match = _pddl_grounding_matches(
-                rows, question.solution, question.question
+            match = _pddl_grounding_matches_calls(
+                calls, question.solution, question.question
             )
         else:
             match = _qa_rows_match(question, rows)
@@ -92,23 +94,52 @@ def _flat_expected_atoms(solution: str) -> set[str]:
     return {text.casefold()} if text else set()
 
 
-def _pddl_grounding_matches(
-    rows: Any, expected_solution: str, natural_language_question: str
+def _pddl_grounding_matches_calls(
+    calls: Sequence[Mapping[str, Any]],
+    expected_solution: str,
+    natural_language_question: str,
 ) -> bool:
     expected = {symbol.upper() for symbol in _SCENE_SYMBOL.findall(expected_solution)}
     explicit = {
         symbol.upper() for symbol in _SCENE_SYMBOL.findall(natural_language_question)
     }
-    # Symbols stated directly by the user are not Cypher-derived grounding. For
-    # purely direct-symbol questions, retain them so an unnecessary query can
-    # still be evaluated consistently.
-    expected = expected - explicit or expected
-    actual = {
+    # Symbols stated directly by the user are not Cypher-derived grounding.
+    # A direct-symbol-only goal therefore needs no database evidence.
+    expected -= explicit
+    if not expected:
+        return True
+
+    executable_rows = [
+        call.get("rows") for call in calls if bool(call.get("executable"))
+    ]
+    call_symbols = [_symbols_in_rows(rows) - explicit for rows in executable_rows]
+    # A sequence can contain both independent grounding calls and superseded
+    # retries. Accept a subset of calls whose combined symbols exactly ground
+    # the goal, without letting an unrelated broad query create a match.
+    reachable = {frozenset()}
+    for symbols in call_symbols:
+        reachable |= {known.union(symbols) for known in tuple(reachable)}
+    if frozenset(expected) in reachable:
+        return True
+
+    # Ranked queries commonly return the desired entity in their first row plus
+    # lower-ranked alternatives. Preserve row order so that such evidence can be
+    # recognized without accepting an unordered superset.
+    return any(
+        (_symbols_in_rows([rows[0]]) - explicit) == expected
+        for rows in executable_rows
+        if isinstance(rows, Sequence)
+        and not isinstance(rows, (str, bytes, bytearray))
+        and rows
+    )
+
+
+def _symbols_in_rows(rows: Any) -> set[str]:
+    return {
         symbol.upper()
         for value in _atomic_values(rows)
         for symbol in _SCENE_SYMBOL.findall(str(value))
     }
-    return bool(expected) and actual == expected
 
 
 def _solution_candidates(rows: Any) -> list[str]:
@@ -122,6 +153,28 @@ def _solution_candidates(rows: Any) -> list[str]:
     candidates.extend(rendered_direct)
     if rendered_direct:
         candidates.append("<" + ", ".join(rendered_direct) + ">")
+    if isinstance(rows, Sequence) and not isinstance(rows, (str, bytes, bytearray)):
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            if all(axis in row for axis in ("x", "y", "z")):
+                candidates.append(f"POINT({row['x']} {row['y']} {row['z']})")
+            symbols = list(
+                dict.fromkeys(
+                    symbol.upper()
+                    for value in _atomic_values(row)
+                    for symbol in _SCENE_SYMBOL.findall(str(value))
+                )
+            )
+            if symbols:
+                symbol_list = "[" + ", ".join(symbols) + "]"
+                candidates.extend(
+                    [
+                        "<" + ", ".join(symbols) + ">",
+                        symbol_list,
+                        "<" + symbol_list + ">",
+                    ]
+                )
     candidates.append(str(rows))
     return list(dict.fromkeys(candidates))
 

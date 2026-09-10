@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -12,7 +13,9 @@ from typing import Any
 
 import yaml
 
-from heracles_agents.llm_interface import LocalResourceMetrics
+from heracles_agents.agent_functions import generate_prompt_for_agent
+from heracles_agents.inference_parameters import get_reasoning_settings
+from heracles_agents.llm_interface import LocalResourceMetrics, generate_tools_for_agent
 from heracles_agents.local_metrics.monitor import (
     LocalMetricsConfig,
     LocalResourceMeasurement,
@@ -38,41 +41,47 @@ def prepare_local_resource_monitor(exp) -> LocalResourceMonitor:
 
 
 def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
-    """Load each configuration's Ollama model after baseline, before sampling."""
+    """Preload and warm each Ollama model after baseline, before sampling."""
 
     config = monitor.config
     if not config.enabled or not config.warmup_enabled:
         monitor.warmup = {"enabled": False, "requests": []}
         return
 
-    models = list(
-        dict.fromkeys(
-            str(phase.model_info.model)
-            for phase in getattr(exp, "phases", {}).values()
-            if getattr(getattr(phase, "client", None), "client_type", None) == "ollama"
-        )
-    )
+    phases_by_model = {}
+    for phase in getattr(exp, "phases", {}).values():
+        if getattr(getattr(phase, "client", None), "client_type", None) != "ollama":
+            continue
+        phases_by_model.setdefault(str(phase.model_info.model), phase)
     records = []
-    for model in models:
-        for attempt in range(1, config.warmup_requests + 1):
-            logger.info(
-                "Warming Ollama model: %s (%s/%s)",
-                model,
-                attempt,
-                config.warmup_requests,
+    for model, phase in phases_by_model.items():
+        # The preload request is intentionally separate from the configured
+        # warmup requests. When models are unloaded for the baseline, that
+        # first request measures the cold start; at least one subsequent
+        # request then exercises the already-resident model before questions
+        # are timed.
+        request_count = config.warmup_requests + 1
+        for attempt in range(1, request_count + 1):
+            kind = (
+                "cold_start"
+                if attempt == 1 and config.unload_models_before_baseline
+                else "preload" if attempt == 1 else "warmup"
             )
-            payload = json.dumps(
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": config.warmup_prompt}],
-                    "stream": False,
-                    "keep_alive": config.warmup_keep_alive,
-                    "options": {"temperature": 0, "num_predict": 8},
-                }
-            ).encode("utf-8")
+            logger.info(
+                "Preparing Ollama model: %s [%s] (%s/%s)",
+                model,
+                kind,
+                attempt,
+                request_count,
+            )
+            payload, profile = _ollama_warmup_payload(
+                phase,
+                config,
+                use_benchmark_prompt=kind == "warmup",
+            )
             request = urllib.request.Request(
                 config.ollama_host.rstrip("/") + "/api/chat",
-                data=payload,
+                data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -86,9 +95,8 @@ def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
                     {
                         "model": model,
                         "request": attempt,
-                        "kind": "cold_start"
-                        if attempt == 1 and config.unload_models_before_baseline
-                        else "warmup",
+                        "kind": kind,
+                        "profile": profile,
                         "succeeded": True,
                         "elapsed_seconds": round(time.perf_counter() - started, 6),
                         **extract_ollama_response_metrics(response_data),
@@ -101,6 +109,8 @@ def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
                     {
                         "model": model,
                         "request": attempt,
+                        "kind": kind,
+                        "profile": profile,
                         "succeeded": False,
                         "elapsed_seconds": round(time.perf_counter() - started, 6),
                         "error": warning,
@@ -121,7 +131,7 @@ def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
                     or loaded.removesuffix(":latest") == model.removesuffix(":latest")
                     for loaded in resident_models
                 )
-                for model in models
+                for model in phases_by_model
             )
             if not resident_verified:
                 monitor.warnings.append(
@@ -138,6 +148,54 @@ def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
         "resident_models": resident_models,
         "requests": records,
     }
+
+
+def _ollama_warmup_payload(
+    phase,
+    config: LocalMetricsConfig,
+    *,
+    use_benchmark_prompt: bool,
+) -> tuple[dict[str, Any], str]:
+    """Build a short warmup that primes the real prompt/tool request shape."""
+
+    messages = [{"role": "user", "content": config.warmup_prompt}]
+    tools = []
+    profile = "model_load"
+    if use_benchmark_prompt:
+        try:
+            prompt = copy.deepcopy(phase.agent_info.prompt_settings.base_prompt)
+            prompt.novel_instruction = config.warmup_prompt
+            messages = generate_prompt_for_agent(prompt, phase)
+            tools = generate_tools_for_agent(phase.agent_info)
+            profile = "benchmark_prompt"
+        except Exception as ex:
+            logger.warning(
+                "Unable to render benchmark-shaped Ollama warmup; using the short "
+                "warmup prompt instead: %s",
+                ex,
+            )
+            profile = "short_prompt_fallback"
+
+    options = {"temperature": 0, "num_predict": 8}
+    seed = getattr(phase.model_info, "seed", None)
+    if seed is not None:
+        options["seed"] = seed
+    payload = {
+        "model": phase.model_info.model,
+        "messages": messages,
+        "stream": False,
+        "keep_alive": config.warmup_keep_alive,
+        "options": options,
+    }
+    if tools:
+        payload["tools"] = tools
+
+    reasoning_mode, reasoning_effort = get_reasoning_settings(phase.model_info)
+    if reasoning_mode == "enabled":
+        payload["think"] = reasoning_effort or True
+    elif reasoning_mode == "disabled":
+        payload["think"] = False
+    return payload, profile
 
 
 def start_local_resource_measurement(

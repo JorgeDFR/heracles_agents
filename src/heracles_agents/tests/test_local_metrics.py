@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
+import heracles_agents.pipelines.local_metrics as pipeline_local_metrics
 from heracles_agents.llm_interface import AgentContext
 from heracles_agents.local_metrics.docker_proxy import (
     DockerContainerStatsSample,
@@ -281,6 +282,18 @@ def test_ollama_warmup_runs_before_measurement_and_records_result(monkeypatch):
         "heracles_agents.pipelines.local_metrics.list_loaded_models",
         lambda _host: [{"name": "test-model"}],
     )
+    monkeypatch.setattr(
+        pipeline_local_metrics,
+        "generate_prompt_for_agent",
+        lambda _prompt, _phase: [
+            {"role": "user", "content": "benchmark-shaped prompt"}
+        ],
+    )
+    monkeypatch.setattr(
+        pipeline_local_metrics,
+        "generate_tools_for_agent",
+        lambda _agent_info: [{"type": "function", "function": {"name": "query"}}],
+    )
     monitor = LocalResourceMonitor(
         LocalMetricsConfig(enabled=True, warmup_enabled=True, warmup_requests=1)
     )
@@ -288,20 +301,37 @@ def test_ollama_warmup_runs_before_measurement_and_records_result(monkeypatch):
         phases={
             "main": SimpleNamespace(
                 client=SimpleNamespace(client_type="ollama"),
-                model_info=SimpleNamespace(model="test-model"),
+                model_info=SimpleNamespace(
+                    model="test-model",
+                    seed=123,
+                    reasoning={"mode": "disabled", "effort": None},
+                ),
+                agent_info=SimpleNamespace(
+                    prompt_settings=SimpleNamespace(
+                        base_prompt=SimpleNamespace(novel_instruction=None)
+                    )
+                ),
             )
         }
     )
 
     _warm_up_ollama(exp, monitor)
 
-    assert len(requests) == 1
+    assert len(requests) == 2
     assert monitor.warmup["requests"][0]["model"] == "test-model"
     assert monitor.warmup["requests"][0]["succeeded"] is True
     assert monitor.warmup["requests"][0]["kind"] == "cold_start"
     assert monitor.warmup["requests"][0]["load_duration_seconds"] == 1
+    assert monitor.warmup["requests"][1]["kind"] == "warmup"
+    assert monitor.warmup["requests"][1]["profile"] == "benchmark_prompt"
+    assert monitor.warmup["requests"][1]["succeeded"] is True
     assert monitor.warmup["resident_verified"] is True
     assert b'"keep_alive": -1' in requests[0][0].data
+    warm_request = requests[1][0].data
+    assert b"benchmark-shaped prompt" in warm_request
+    assert b'"tools":' in warm_request
+    assert b'"think": false' in warm_request
+    assert b'"seed": 123' in warm_request
 
 
 def test_monitor_returns_warnings_when_sources_are_unavailable():

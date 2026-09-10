@@ -52,12 +52,20 @@ def test_model_info_normalizes_reasoning_settings():
         reasoning={"mode": "enabled", "effort": "custom-level"},
     )
     legacy = ModelInfo(model="model", reasoning="medium")
+    model_default = ModelInfo(model="model", reasoning={"mode": "enabled"})
+    explicit_model_default = ModelInfo(
+        model="model",
+        reasoning={"mode": "enabled", "effort": "model_default"},
+    )
 
     assert normalized.reasoning.mode == "enabled"
     assert normalized.reasoning.effort == "custom-level"
     assert normalized.temperature is None
     assert legacy.reasoning.mode == "enabled"
     assert legacy.reasoning.effort == "medium"
+    assert model_default.reasoning.mode == "enabled"
+    assert model_default.reasoning.effort is None
+    assert explicit_model_default.reasoning.effort is None
 
 
 def test_model_info_rejects_effort_when_reasoning_is_not_enabled():
@@ -68,12 +76,31 @@ def test_model_info_rejects_effort_when_reasoning_is_not_enabled():
         )
 
 
+def test_model_info_rejects_removed_provider_default_mode():
+    with pytest.raises(ValueError, match="Input should be"):
+        ModelInfo(
+            model="model",
+            reasoning={"mode": "provider_default", "effort": None},
+        )
+
+
 def test_evaluate_answer_handles_valid_and_invalid_pddl():
     comparator = PddlComparison(comparison_type="PDDL", relation="equal")
 
     assert evaluate_answer(comparator, "(and)", "(and)") == (True, True)
     assert evaluate_answer(comparator, "(and)", "(or)") == (True, False)
     assert evaluate_answer(comparator, "(", "(and)") == (False, False)
+    assert evaluate_answer(comparator, "(visited-room R1)", "(visited-region R1)") == (
+        False,
+        False,
+    )
+    assert evaluate_answer(comparator, "(holding R1)", "(holding O1)") == (
+        False,
+        False,
+    )
+    assert evaluate_answer(
+        comparator, "(object-in-place O1)", "(object-in-place O1 P1)"
+    ) == (False, False)
 
 
 def test_evaluate_answer_handles_valid_and_invalid_sldp():
@@ -82,6 +109,14 @@ def test_evaluate_answer_handles_valid_and_invalid_sldp():
     assert evaluate_answer(comparator, "<1, 2>", "<2, 1>") == (True, True)
     assert evaluate_answer(comparator, "<1>", "<2>") == (True, False)
     assert evaluate_answer(comparator, "(", "<2>") == (False, False)
+
+
+def test_evaluate_answer_safely_normalizes_singleton_sldp_sets():
+    comparator = SldpComparison(comparison_type="SLDP", relation="equal")
+
+    assert evaluate_answer(comparator, "O95", "<O95>") == (True, True)
+    assert evaluate_answer(comparator, "<P8638", "<P8638>") == (False, True)
+    assert evaluate_answer(comparator, "O1", "<O1, O2>") == (True, False)
 
 
 def test_apply_bound_args_instantiates_scalars_and_models():

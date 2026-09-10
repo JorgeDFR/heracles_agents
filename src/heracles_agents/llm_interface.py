@@ -37,6 +37,7 @@ from heracles_agents.local_metrics.ollama_runtime import (
     extract_ollama_response_metrics,
     summarize_ollama_metrics,
 )
+from heracles_agents.token_utils import count_text_tokens
 from heracles_agents.tool_calling.rendering import has_tool_renderer, render_tool_for_interface
 
 logger = logging.getLogger(__name__)
@@ -298,6 +299,8 @@ def make_latency_metrics(
     ]
     ollama = summarize_ollama_metrics(ollama_metrics)
     ollama_total_seconds = ollama.get("total_duration_seconds")
+    ollama_load_seconds = ollama.get("load_duration_seconds")
+    ollama_processing_seconds = ollama.get("steady_state_seconds")
     ollama_generation_seconds = ollama.get("eval_duration_seconds")
     output_throughput = ollama.get("output_tokens_per_second")
     throughput_source = "ollama_eval_duration" if output_throughput is not None else None
@@ -305,11 +308,32 @@ def make_latency_metrics(
         output_throughput = round(output_tokens / successful_llm_seconds, 6)
         throughput_source = "observed_call_wall_time"
 
+    wall_llm_call_seconds = sum(
+        getattr(context, "llm_call_seconds", 0.0) for context in contexts
+    )
+    llm_call_seconds = wall_llm_call_seconds
+    if ollama_metrics and ollama_processing_seconds is not None:
+        # Ollama reports prompt evaluation and generation independently of
+        # model loading and HTTP/client setup. Use those provider-native phases
+        # for normalized per-question LLM latency, and replace the corresponding
+        # wall-clock portion in end-to-end latency. This prevents cold-start or
+        # connection setup outside the reported load_duration from leaking into
+        # the first measured question.
+        excluded_seconds = max(
+            0.0,
+            wall_llm_call_seconds - ollama_processing_seconds,
+        )
+        llm_call_seconds = ollama_processing_seconds
+        end_to_end_seconds = max(0.0, end_to_end_seconds - excluded_seconds)
+    elif ollama_metrics and ollama_load_seconds is not None:
+        # Compatibility fallback for older responses that do not expose the
+        # prompt/evaluation durations.
+        end_to_end_seconds = max(0.0, end_to_end_seconds - ollama_load_seconds)
+        llm_call_seconds = max(0.0, llm_call_seconds - ollama_load_seconds)
+
     return LatencyMetrics(
         end_to_end_seconds=round(end_to_end_seconds, 6),
-        llm_call_seconds=round(
-            sum(getattr(context, "llm_call_seconds", 0.0) for context in contexts), 6
-        ),
+        llm_call_seconds=round(llm_call_seconds, 6),
         tool_execution_seconds=round(
             sum(
                 getattr(context, "tool_execution_seconds", 0.0)
@@ -324,7 +348,7 @@ def make_latency_metrics(
             6,
         ),
         ollama_total_duration_seconds=ollama_total_seconds,
-        load_duration_seconds=ollama.get("load_duration_seconds"),
+        load_duration_seconds=ollama_load_seconds,
         prompt_eval_duration_seconds=ollama.get("prompt_eval_duration_seconds"),
         generation_duration_seconds=ollama_generation_seconds,
         client_overhead_seconds=(
@@ -736,6 +760,42 @@ def _extract_usage_details(usage) -> tuple[int, int]:
     return cached or 0, reasoning or 0
 
 
+def _extract_ollama_reasoning_tokens(response, agent, output_tokens) -> int:
+    """Estimate Ollama's reasoning subset when only eval_count is reported.
+
+    Ollama separates thinking text from final content but does not currently
+    provide a separate thinking-token count. If both content and tool calls are
+    empty, eval_count is the best available count. Otherwise use the registered
+    model tokenizer (or its fallback) on the thinking text and cap the result at
+    eval_count.
+    """
+
+    message = _get_attr_or_key(response, "message")
+    for source in (response, message):
+        for field in ("reasoning_tokens", "thinking_count", "thinking_eval_count"):
+            reported = _coerce_int(_get_attr_or_key(source, field))
+            if reported is not None:
+                return max(0, reported)
+
+    thinking = _get_attr_or_key(message, "thinking")
+    if not thinking:
+        thinking = _get_attr_or_key(response, "thinking")
+    if not thinking:
+        return 0
+
+    content = _get_attr_or_key(message, "content")
+    if content is None:
+        content = _get_attr_or_key(response, "response")
+    tool_calls = _get_attr_or_key(message, "tool_calls")
+    if not content and not tool_calls and output_tokens is not None:
+        return max(0, output_tokens)
+
+    estimated = max(0, count_text_tokens(agent, thinking))
+    if output_tokens is not None:
+        estimated = min(estimated, max(0, output_tokens))
+    return estimated
+
+
 def generate_tools_for_agent(agent_info):
     if agent_info.tool_interface in {"custom", "none"}:
         return []
@@ -963,6 +1023,15 @@ class AgentContext:
                 self.total_input_tokens += usage_input_tokens
                 self.total_output_tokens += usage_output_tokens
                 cached_tokens, reasoning_tokens = _extract_usage_details(usage)
+                if (
+                    reasoning_tokens == 0
+                    and getattr(self.agent.client, "client_type", None) == "ollama"
+                ):
+                    reasoning_tokens = _extract_ollama_reasoning_tokens(
+                        response,
+                        self.agent,
+                        usage_output_tokens,
+                    )
                 self.cached_input_tokens += cached_tokens
                 self.reasoning_tokens += reasoning_tokens
                 self.record_llm_call_cost(
