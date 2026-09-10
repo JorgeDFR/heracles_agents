@@ -7,10 +7,13 @@ metadata:
     ollama_container_name: ollama
     docker_host: tcp://docker-socket-proxy:2375
     ollama_host: http://ollama:11434
-    sample_interval_seconds: 0.025
+    sample_interval_seconds: 0.1
     gpu_baseline_seconds: 5
     unload_models_before_baseline: true
     baseline_adjust_gpu: true
+    warmup_enabled: true
+    warmup_keep_alive: -1
+    warmup_verify_resident: true
 
 model_sweeps:
   ollama-cypher:
@@ -28,6 +31,7 @@ model_sweeps:
         main:
           client:
             client_type: ollama
+            keep_alive: -1
           model_info:
             temperature: 0.2
             seed: 123

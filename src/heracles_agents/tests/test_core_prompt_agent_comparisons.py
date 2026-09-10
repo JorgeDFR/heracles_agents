@@ -4,7 +4,7 @@ import pytest
 import yaml
 from pydantic import BaseModel
 
-from heracles_agents.llm_agent import AgentInfo, apply_bound_args
+from heracles_agents.llm_agent import AgentInfo, ModelInfo, apply_bound_args
 from heracles_agents.llm_interface import PddlComparison, SldpComparison
 from heracles_agents.pipelines.comparisons import evaluate_answer
 from heracles_agents.prompt import (
@@ -29,6 +29,12 @@ from heracles_agents.provider_integrations.openai.prompt_rendering import (
     render_openai_example,
     render_openai_prompt,
 )
+from heracles_agents.provider_integrations.ollama.prompt_rendering import (
+    render_ollama_prompt,
+)
+from heracles_agents.provider_integrations.openrouter.prompt_rendering import (
+    render_openrouter_prompt,
+)
 from heracles_agents.tool_calling.tool_description import FunctionParameter, ToolDescription
 from heracles_agents.tool_calling.registry import ToolRegistry
 
@@ -36,6 +42,30 @@ from heracles_agents.tool_calling.registry import ToolRegistry
 class BoundConfig(BaseModel):
     prefix: str
     count: int
+
+
+def test_model_info_normalizes_reasoning_settings():
+    normalized = ModelInfo(
+        model="model",
+        temperature=None,
+        seed=None,
+        reasoning={"mode": "enabled", "effort": "custom-level"},
+    )
+    legacy = ModelInfo(model="model", reasoning="medium")
+
+    assert normalized.reasoning.mode == "enabled"
+    assert normalized.reasoning.effort == "custom-level"
+    assert normalized.temperature is None
+    assert legacy.reasoning.mode == "enabled"
+    assert legacy.reasoning.effort == "medium"
+
+
+def test_model_info_rejects_effort_when_reasoning_is_not_enabled():
+    with pytest.raises(ValueError, match="only be set when reasoning mode is enabled"):
+        ModelInfo(
+            model="model",
+            reasoning={"mode": "disabled", "effort": "low"},
+        )
 
 
 def test_evaluate_answer_handles_valid_and_invalid_pddl():
@@ -206,6 +236,31 @@ def test_prompt_loads_yaml_descriptions_and_renders_provider_payloads(tmp_path):
     bedrock = render_bedrock_prompt(prompt, novel_instruction="override")
     assert bedrock[0] == {"role": "user", "content": [{"text": "system"}]}
     assert {"role": "user", "content": [{"text": "override"}]} in bedrock
+
+
+def test_pddl_examples_are_one_user_message_for_benchmark_providers(monkeypatch):
+    project_root = Path(__file__).resolve().parents[3]
+    monkeypatch.setenv("HERACLES_AGENTS_PATH", str(project_root))
+    settings = PromptSettings(
+        base_prompt=str(
+            project_root
+            / "examples"
+            / "prompts"
+            / "cypher"
+            / "pddl_agentic_cypher_prompt.yaml"
+        )
+    )
+    examples = settings.base_prompt.in_context_examples
+
+    assert isinstance(examples, str)
+    assert examples.startswith("<PDDL Examples>")
+    assert examples.endswith("</PDDL Examples>\n")
+
+    for render in (render_ollama_prompt, render_openrouter_prompt):
+        messages = render(settings.base_prompt, novel_instruction="Test instruction")
+        example_messages = [message for message in messages if message["content"] == examples]
+        assert example_messages == [{"role": "user", "content": examples}]
+        assert all(message["role"] == "user" for message in messages)
 
 
 def test_prompt_requires_novel_instruction_and_valid_yaml_keys(tmp_path):

@@ -37,12 +37,12 @@ TERMINAL_QUESTION_COLUMNS = {
     "Tool Executable": "tool_executable",
     "Cypher Solution / Grounding Match": "cypher_solution_match",
     "Final Answer Match": "final_answer_match",
-    "New Input Tokens": "input_tokens",
-    "Processed Input Tokens": "input_tokens_processed",
+    "Input Tokens": "input_tokens",
     "Cached Input Tokens": "cached_input_tokens",
-    "Cache Write Tokens": "cache_write_input_tokens",
     "Output Tokens": "output_tokens",
+    "Reasoning Tokens": "reasoning_tokens",
     "Throughput": "output_tokens_per_second",
+    "Model Load Duration": "load_duration_seconds",
     "Tool Calls": "n_tool_calls",
 }
 
@@ -51,12 +51,12 @@ TERMINAL_SUMMARY_COLUMNS = {
     "Tool Executable": "tool_executable",
     "Cypher Solution / Grounding Match": "cypher_solution_match",
     "Final Answer Match": "final_answer_match",
-    "New Input Tokens": "input_tokens",
-    "Processed Input Tokens": "input_tokens_processed",
+    "Input Tokens": "input_tokens",
     "Cached Input Tokens": "cached_input_tokens",
-    "Cache Write Tokens": "cache_write_input_tokens",
     "Output Tokens": "output_tokens",
+    "Reasoning Tokens": "reasoning_tokens",
     "Throughput": "output_tokens_per_second",
+    "Model Load Duration": "load_duration_seconds",
     "Tool Calls": "n_tool_calls",
 }
 
@@ -66,6 +66,9 @@ class ProviderModelRef:
     phase: str
     provider: str | None
     model_identifier: str | None
+    request_parameters: dict[str, Any] | None = None
+    parameter_capabilities: dict[str, Any] | None = None
+    require_parameters: bool | None = None
 
 
 @dataclass
@@ -87,14 +90,12 @@ class ConfigurationSummary:
     tool_executable_rate: float | None = None
     input_tokens_total: int = 0
     input_tokens_avg: float | None = None
-    input_tokens_processed_total: int = 0
-    input_tokens_processed_avg: float | None = None
     cached_input_tokens_total: int = 0
     cached_input_tokens_avg: float | None = None
-    cache_write_input_tokens_total: int = 0
-    cache_write_input_tokens_avg: float | None = None
     output_tokens_total: int = 0
     output_tokens_avg: float | None = None
+    reasoning_tokens_total: int = 0
+    reasoning_tokens_avg: float | None = None
     tool_calls_total: int = 0
     tool_calls_avg: float | None = None
     output_tokens_per_second: float | None = None
@@ -104,6 +105,12 @@ class ConfigurationSummary:
     end_to_end_latency_p95: float | None = None
     llm_latency_total: float | None = None
     llm_latency_avg: float | None = None
+    ollama_total_duration_total: float | None = None
+    load_duration_total: float | None = None
+    load_duration_avg: float | None = None
+    prompt_eval_duration_total: float | None = None
+    generation_duration_total: float | None = None
+    client_overhead_total: float | None = None
     tool_latency_total: float | None = None
     neo4j_latency_total: float | None = None
     validation_latency_total: float | None = None
@@ -131,10 +138,9 @@ class QuestionResult:
     cypher_tool_output: Any
     cypher_validation_issues: list[str]
     input_tokens: int | None
-    input_tokens_processed: int | None
     cached_input_tokens: int | None
-    cache_write_input_tokens: int | None
     output_tokens: int | None
+    reasoning_tokens: int | None
     n_tool_calls: int | None
     latency: dict[str, Any] = field(default_factory=dict)
     cost: dict[str, Any] | None = None
@@ -288,16 +294,11 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
         q.tool_executable for q in questions if q.tool_executable is not None
     ]
     input_tokens = [_number_or_zero(q.input_tokens) for q in questions]
-    input_tokens_processed = [
-        _number_or_zero(q.input_tokens_processed) for q in questions
-    ]
     cached_input_tokens = [
         _number_or_zero(q.cached_input_tokens) for q in questions
     ]
-    cache_write_input_tokens = [
-        _number_or_zero(q.cache_write_input_tokens) for q in questions
-    ]
     output_tokens = [_number_or_zero(q.output_tokens) for q in questions]
+    reasoning_tokens = [_number_or_zero(q.reasoning_tokens) for q in questions]
     tool_calls = [_number_or_zero(q.n_tool_calls) for q in questions]
 
     e2e = _metric_values(questions, "end_to_end_seconds")
@@ -306,6 +307,13 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
     neo4j = _metric_values(questions, "neo4j_query_seconds")
     validation = _metric_values(questions, "parsing_validation_seconds")
     retry = _metric_values(questions, "retry_wait_seconds")
+    ollama_total = _metric_values(questions, "ollama_total_duration_seconds")
+    load_duration = _metric_values(questions, "load_duration_seconds")
+    prompt_eval_duration = _metric_values(
+        questions, "prompt_eval_duration_seconds"
+    )
+    generation_duration = _metric_values(questions, "generation_duration_seconds")
+    client_overhead = _metric_values(questions, "client_overhead_seconds")
     costs = [
         _coerce_float((q.cost or {}).get("total_cost_usd"))
         for q in questions
@@ -325,6 +333,14 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
             if generation_seconds and call_output_tokens is not None:
                 provider_generation_seconds += generation_seconds
                 provider_output_tokens += call_output_tokens
+    ollama_output_tokens = sum(
+        _number_or_zero(question.output_tokens)
+        for question in questions
+        if _coerce_float(
+            question.latency.get("generation_duration_seconds")
+        )
+        is not None
+    )
 
     return ConfigurationSummary(
         questions=n_questions,
@@ -354,18 +370,18 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
         ),
         input_tokens_total=int(sum(input_tokens)),
         input_tokens_avg=sum(input_tokens) / n_questions,
-        input_tokens_processed_total=int(sum(input_tokens_processed)),
-        input_tokens_processed_avg=sum(input_tokens_processed) / n_questions,
         cached_input_tokens_total=int(sum(cached_input_tokens)),
         cached_input_tokens_avg=sum(cached_input_tokens) / n_questions,
-        cache_write_input_tokens_total=int(sum(cache_write_input_tokens)),
-        cache_write_input_tokens_avg=sum(cache_write_input_tokens) / n_questions,
         output_tokens_total=int(sum(output_tokens)),
         output_tokens_avg=sum(output_tokens) / n_questions,
+        reasoning_tokens_total=int(sum(reasoning_tokens)),
+        reasoning_tokens_avg=sum(reasoning_tokens) / n_questions,
         tool_calls_total=int(sum(tool_calls)),
         tool_calls_avg=sum(tool_calls) / n_questions,
         output_tokens_per_second=(
-            provider_output_tokens / provider_generation_seconds
+            ollama_output_tokens / sum(generation_duration)
+            if generation_duration and sum(generation_duration) > 0
+            else provider_output_tokens / provider_generation_seconds
             if provider_generation_seconds > 0
             else sum(output_tokens) / sum(llm)
             if llm and sum(llm) > 0
@@ -377,6 +393,12 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
         end_to_end_latency_p95=_percentile(e2e, 95),
         llm_latency_total=_sum_or_none(llm),
         llm_latency_avg=_avg_or_none(llm),
+        ollama_total_duration_total=_sum_or_none(ollama_total),
+        load_duration_total=_sum_or_none(load_duration),
+        load_duration_avg=_avg_or_none(load_duration),
+        prompt_eval_duration_total=_sum_or_none(prompt_eval_duration),
+        generation_duration_total=_sum_or_none(generation_duration),
+        client_overhead_total=_sum_or_none(client_overhead),
         tool_latency_total=_sum_or_none(tool),
         neo4j_latency_total=_sum_or_none(neo4j),
         validation_latency_total=_sum_or_none(validation),
@@ -422,6 +444,30 @@ def summarize_configuration_from_data(
         summary.llm_latency_avg = _coalesce_float(
             latency.get("llm_call_seconds_avg"),
             summary.llm_latency_avg,
+        )
+        summary.ollama_total_duration_total = _coalesce_float(
+            latency.get("ollama_total_duration_seconds_total"),
+            summary.ollama_total_duration_total,
+        )
+        summary.load_duration_total = _coalesce_float(
+            latency.get("load_duration_seconds_total"),
+            summary.load_duration_total,
+        )
+        summary.load_duration_avg = _coalesce_float(
+            latency.get("load_duration_seconds_avg"),
+            summary.load_duration_avg,
+        )
+        summary.prompt_eval_duration_total = _coalesce_float(
+            latency.get("prompt_eval_duration_seconds_total"),
+            summary.prompt_eval_duration_total,
+        )
+        summary.generation_duration_total = _coalesce_float(
+            latency.get("generation_duration_seconds_total"),
+            summary.generation_duration_total,
+        )
+        summary.client_overhead_total = _coalesce_float(
+            latency.get("client_overhead_seconds_total"),
+            summary.client_overhead_total,
         )
         summary.tool_latency_total = _coalesce_float(
             latency.get("tool_execution_seconds_total"),
@@ -609,17 +655,14 @@ def _parse_questions(
                     str(issue)
                     for issue in (analysis.get("cypher_validation_issues") or [])
                 ],
-                input_tokens=_coerce_int(analysis.get("input_tokens")),
-                input_tokens_processed=_coerce_int(
+                input_tokens=_coerce_int(
                     analysis.get("input_tokens_processed", analysis.get("input_tokens"))
                 ),
                 cached_input_tokens=_coerce_int(
                     analysis.get("cached_input_tokens")
                 ),
-                cache_write_input_tokens=_coerce_int(
-                    analysis.get("cache_write_input_tokens")
-                ),
                 output_tokens=_coerce_int(analysis.get("output_tokens")),
+                reasoning_tokens=_coerce_int(analysis.get("reasoning_tokens")),
                 n_tool_calls=_coerce_int(analysis.get("n_tool_calls")),
                 latency=latency if isinstance(latency, dict) else {},
                 cost=cost if isinstance(cost, dict) else None,
@@ -647,6 +690,13 @@ def _provider_models_for(metadata: dict[str, Any], configuration_name: str):
                     phase=str(phase_name),
                     provider=phase_data.get("provider"),
                     model_identifier=phase_data.get("model_identifier"),
+                    request_parameters=_as_dict_or_none(
+                        phase_data.get("request_parameters")
+                    ),
+                    parameter_capabilities=_as_dict_or_none(
+                        phase_data.get("parameter_capabilities")
+                    ),
+                    require_parameters=phase_data.get("require_parameters"),
                 )
             )
     return provider_models
@@ -696,13 +746,13 @@ def _terminal_question_row(question: QuestionResult) -> dict[str, Any]:
         "cypher_solution_match": question.cypher_solution_match,
         "tool_executable": question.tool_executable,
         "input_tokens": question.input_tokens,
-        "input_tokens_processed": question.input_tokens_processed,
         "cached_input_tokens": question.cached_input_tokens,
-        "cache_write_input_tokens": question.cache_write_input_tokens,
         "output_tokens": question.output_tokens,
+        "reasoning_tokens": question.reasoning_tokens,
         "output_tokens_per_second": question.latency.get(
             "output_tokens_per_second"
         ),
+        "load_duration_seconds": question.latency.get("load_duration_seconds"),
         "n_tool_calls": question.n_tool_calls,
         "n_sequences": question.n_sequences,
     }
@@ -730,25 +780,23 @@ def _terminal_summary_row(summary: ConfigurationSummary) -> dict[str, Any]:
         "input_tokens": _total_avg(
             summary.input_tokens_total, summary.input_tokens_avg
         ),
-        "input_tokens_processed": _total_avg(
-            summary.input_tokens_processed_total,
-            summary.input_tokens_processed_avg,
-        ),
         "cached_input_tokens": _total_avg(
             summary.cached_input_tokens_total,
             summary.cached_input_tokens_avg,
         ),
-        "cache_write_input_tokens": _total_avg(
-            summary.cache_write_input_tokens_total,
-            summary.cache_write_input_tokens_avg,
-        ),
         "output_tokens": _total_avg(
             summary.output_tokens_total, summary.output_tokens_avg
+        ),
+        "reasoning_tokens": _total_avg(
+            summary.reasoning_tokens_total, summary.reasoning_tokens_avg
         ),
         "output_tokens_per_second": (
             f"{summary.output_tokens_per_second:.2f} tok/s"
             if summary.output_tokens_per_second is not None
             else None
+        ),
+        "load_duration_seconds": _total_avg(
+            summary.load_duration_total, summary.load_duration_avg
         ),
         "n_tool_calls": _total_avg(summary.tool_calls_total, summary.tool_calls_avg),
     }
@@ -1067,6 +1115,7 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
         for configuration in source.configurations:
             config_id = f"{source_id}:{configuration.configuration_name}"
             summary = asdict(configuration.summary)
+            summary.update(_summarize_warmup(configuration.local_resources))
             provider_model_label = _provider_model_label(configuration.provider_models)
             providers = _provider_labels(configuration.provider_models)
             provider_label = ", ".join(providers)
@@ -1089,6 +1138,11 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                 }
             )
             for ref in configuration.provider_models:
+                request_parameters = ref.request_parameters or {}
+                parameter_capabilities = ref.parameter_capabilities or {}
+                reasoning = _as_dict_or_none(
+                    request_parameters.get("reasoning")
+                ) or {}
                 provider_models.append(
                     {
                         "source_id": source_id,
@@ -1097,6 +1151,19 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "phase": ref.phase,
                         "provider": ref.provider,
                         "model_identifier": ref.model_identifier,
+                        "temperature": request_parameters.get("temperature"),
+                        "seed": request_parameters.get("seed"),
+                        "reasoning_mode": reasoning.get("mode"),
+                        "reasoning_effort": reasoning.get("effort"),
+                        "reasoning_support": parameter_capabilities.get("reasoning"),
+                        "reasoning_supported_efforts": ", ".join(
+                            parameter_capabilities.get("reasoning_efforts") or []
+                        ),
+                        "temperature_supported": parameter_capabilities.get(
+                            "temperature"
+                        ),
+                        "seed_supported": parameter_capabilities.get("seed"),
+                        "require_parameters": ref.require_parameters,
                         "provider_model": "/".join(
                             part
                             for part in [ref.provider, ref.model_identifier]
@@ -1129,15 +1196,13 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "cypher_tool_output": question.cypher_tool_output,
                         "cypher_validation_issues": question.cypher_validation_issues,
                         "input_tokens": question.input_tokens,
-                        "input_tokens_processed": question.input_tokens_processed,
                         "cached_input_tokens": question.cached_input_tokens,
-                        "cache_write_input_tokens": question.cache_write_input_tokens,
                         "output_tokens": question.output_tokens,
+                        "reasoning_tokens": question.reasoning_tokens,
                         "n_tool_calls": question.n_tool_calls,
                         "latency": question.latency,
                         "cost": question.cost,
                         "local_resources": question.local_resources,
-                        "configuration_local_resources": configuration.local_resources,
                         "n_sequences": question.n_sequences,
                         "sequences": _structured_sequences(question.sequences),
                     }
@@ -1305,7 +1370,7 @@ def _summarize_local_resources(
             "ram_peak_bytes": _local_resource_value(
                 configuration_local_resources,
                 "ram",
-                "container_ram_bytes_peak",
+                "container_ram_cgroup_working_set_bytes_peak",
             ),
             "gpu_vram_peak_mib": _local_resource_value(
                 configuration_local_resources,
@@ -1315,7 +1380,7 @@ def _summarize_local_resources(
             "gpu_avg_percent": _local_resource_value(
                 configuration_local_resources,
                 "gpu",
-                "gpu_utilization_percent_adjusted_avg",
+                "gpu_utilization_percent_raw_avg",
             ),
             "gpu_power_avg_w": _local_resource_value(
                 configuration_local_resources,
@@ -1326,16 +1391,6 @@ def _summarize_local_resources(
                 configuration_local_resources,
                 "gpu",
                 "gpu_energy_wh_adjusted",
-            ),
-            "throughput_tokens_per_second": _local_resource_value(
-                configuration_local_resources,
-                "ollama",
-                "output_tokens_per_second",
-            ),
-            "load_time_seconds": _local_resource_value(
-                configuration_local_resources,
-                "ollama",
-                "load_duration_seconds",
             ),
         }
 
@@ -1355,13 +1410,11 @@ def _summarize_local_resources(
     cpu_peak = values("cpu", "container_cpu_percent_peak")
     cpu_normalized_avg = values("cpu", "container_cpu_percent_normalized_avg")
     cpu_normalized_peak = values("cpu", "container_cpu_percent_normalized_peak")
-    ram_peak = values("ram", "container_ram_bytes_peak")
+    ram_peak = values("ram", "container_ram_cgroup_working_set_bytes_peak")
     gpu_vram_peak = values("gpu", "gpu_memory_used_mib_adjusted_peak")
-    gpu_util_avg = values("gpu", "gpu_utilization_percent_adjusted_avg")
+    gpu_util_avg = values("gpu", "gpu_utilization_percent_raw_avg")
     gpu_power_avg = values("gpu", "gpu_power_w_adjusted_avg")
     gpu_energy = values("gpu", "gpu_energy_wh_adjusted")
-    ollama_tps = values("ollama", "output_tokens_per_second")
-    load_time = values("ollama", "load_duration_seconds")
 
     cpu_avg_value = _avg(cpu_normalized_avg)
     if cpu_avg_value is None:
@@ -1381,8 +1434,32 @@ def _summarize_local_resources(
         "gpu_avg_percent": _avg(gpu_util_avg),
         "gpu_power_avg_w": _avg(gpu_power_avg),
         "gpu_energy_wh": round(sum(gpu_energy), 9) if gpu_energy else None,
-        "throughput_tokens_per_second": _avg(ollama_tps),
-        "load_time_seconds": max(load_time) if load_time else None,
+    }
+
+
+def _summarize_warmup(
+    configuration_local_resources: dict[str, Any] | None,
+) -> dict[str, Any]:
+    warmup = (
+        (configuration_local_resources or {}).get("warmup") or {}
+    )
+    requests = warmup.get("requests") or []
+    cold_start = next(
+        (
+            request
+            for request in requests
+            if request.get("kind") == "cold_start" and request.get("succeeded")
+        ),
+        None,
+    )
+    return {
+        "cold_start_load_duration_seconds": _coerce_float(
+            (cold_start or {}).get("load_duration_seconds")
+        ),
+        "cold_start_total_duration_seconds": _coerce_float(
+            (cold_start or {}).get("total_duration_seconds")
+        ),
+        "warmup_resident_verified": warmup.get("resident_verified"),
     }
 
 
@@ -1574,12 +1651,17 @@ _HTML_TEMPLATE = """<!doctype html>
     .sequence-group { margin-top: 18px; }
     .sequence-group h4 { margin: 0 0 8px; }
     .message-list { display: grid; gap: 10px; }
-    .validation-detail-group { margin: 16px 0 0; }
+    details {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      margin: 14px 0;
+    }
+    summary { cursor: pointer; font-weight: 650; }
+    .validation-detail-group { margin: 10px 0; }
     .validation-detail-group > summary {
       color: var(--accent);
-      cursor: pointer;
       font-size: 14px;
-      font-weight: 700;
     }
     .validation-detail-group-body {
       border-top: 1px solid var(--line);
@@ -1615,6 +1697,8 @@ _HTML_TEMPLATE = """<!doctype html>
       padding: 8px;
       max-height: 260px;
       overflow: auto;
+      margin: 0;
+      font: inherit;
     }
     .kv {
       display: grid;
@@ -1777,7 +1861,7 @@ _HTML_TEMPLATE = """<!doctype html>
       return values.find(value => value !== null && value !== undefined && value !== "");
     }
     function questionLocalResource(row, group, ...keys) {
-      const resources = row.local_resources || row.configuration_local_resources || {};
+      const resources = row.local_resources || {};
       const values = resources[group] || {};
       return firstRecordedValue(...keys.map(key => values[key]));
     }
@@ -1785,13 +1869,11 @@ _HTML_TEMPLATE = """<!doctype html>
       const accessors = {
         cpu_avg_percent: () => questionLocalResource(row, "cpu", "container_cpu_percent_normalized_avg", "container_cpu_percent_avg"),
         cpu_peak_percent: () => questionLocalResource(row, "cpu", "container_cpu_percent_normalized_peak", "container_cpu_percent_peak"),
-        ram_peak_bytes: () => questionLocalResource(row, "ram", "container_ram_bytes_peak"),
+        ram_peak_bytes: () => questionLocalResource(row, "ram", "container_ram_cgroup_working_set_bytes_peak"),
         gpu_vram_peak_mib: () => questionLocalResource(row, "gpu", "gpu_memory_used_mib_adjusted_peak"),
-        gpu_avg_percent: () => questionLocalResource(row, "gpu", "gpu_utilization_percent_adjusted_avg"),
+        gpu_avg_percent: () => questionLocalResource(row, "gpu", "gpu_utilization_percent_raw_avg"),
         gpu_power_avg_w: () => questionLocalResource(row, "gpu", "gpu_power_w_adjusted_avg"),
         gpu_energy_wh: () => questionLocalResource(row, "gpu", "gpu_energy_wh_adjusted"),
-        throughput_tokens_per_second: () => questionLocalResource(row, "ollama", "output_tokens_per_second"),
-        load_time_seconds: () => questionLocalResource(row, "ollama", "load_duration_seconds"),
       };
       return accessors[key] ? accessors[key]() : null;
     }
@@ -1831,7 +1913,8 @@ _HTML_TEMPLATE = """<!doctype html>
                 cpu: questionLocalSummary(row, "cpu_avg_percent"),
                 ram: questionLocalSummary(row, "ram_peak_bytes"),
                 gpu: questionLocalSummary(row, "gpu_avg_percent"),
-                throughput: questionLocalSummary(row, "throughput_tokens_per_second"),
+                power: questionLocalSummary(row, "gpu_power_avg_w"),
+                energy: questionLocalSummary(row, "gpu_energy_wh"),
               };
           return Object.values(summary).some(hasRecordedValue);
         });
@@ -1961,14 +2044,16 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "tool_executable_rate", label: "Tool Executable", group: "quality", render: r => percent((r.summary.tool_executable_rate || 0) * 100), sortValue: r => r.summary.tool_executable_rate, visible: hasRecorded(r => r.summary.tool_executable_rate) },
         { key: "cypher_solution_match_rate", label: "Cypher Solution / Grounding Match", group: "quality", render: r => percent((r.summary.cypher_solution_match_rate || 0) * 100), sortValue: r => r.summary.cypher_solution_match_rate, visible: hasRecorded(r => r.summary.cypher_solution_match_rate) },
         { key: "final_answer_match_rate", label: "Final Answer Match", group: "quality", render: r => percent((r.summary.final_answer_match_rate || 0) * 100), sortValue: r => r.summary.final_answer_match_rate },
-        { key: "input_tokens_total", label: "New Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total, visible: hasValue(r => r.summary.input_tokens_total) },
-        { key: "input_tokens_processed_total", label: "Processed Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_processed_total), sortValue: r => r.summary.input_tokens_processed_total, visible: hasValue(r => r.summary.input_tokens_processed_total) },
-        { key: "cached_input_tokens_total", label: "Cached Input Tokens", group: "tokens", render: r => text(r.summary.cached_input_tokens_total), sortValue: r => r.summary.cached_input_tokens_total, visible: hasValue(r => r.summary.cached_input_tokens_total) },
-        { key: "cache_write_input_tokens_total", label: "Cache Write Tokens", group: "tokens", render: r => text(r.summary.cache_write_input_tokens_total), sortValue: r => r.summary.cache_write_input_tokens_total, visible: hasValue(r => r.summary.cache_write_input_tokens_total) },
+        { key: "input_tokens_total", label: "Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total, visible: hasValue(r => r.summary.input_tokens_total) },
+        { key: "cached_input_tokens_total", label: "Cached Input Tokens", group: "tokens", render: r => text(r.summary.cached_input_tokens_total), sortValue: r => r.summary.cached_input_tokens_total },
         { key: "output_tokens_total", label: "Output Tokens", group: "tokens", render: r => text(r.summary.output_tokens_total), sortValue: r => r.summary.output_tokens_total, visible: hasValue(r => r.summary.output_tokens_total) },
-        { key: "output_tokens_per_second", label: "Throughput", group: "tokens", render: r => tokensPerSecond(r.summary.output_tokens_per_second), sortValue: r => r.summary.output_tokens_per_second, visible: hasRecorded(r => r.summary.output_tokens_per_second) },
+        { key: "reasoning_tokens_total", label: "Reasoning Tokens", group: "tokens", render: r => text(r.summary.reasoning_tokens_total), sortValue: r => r.summary.reasoning_tokens_total },
         { key: "tool_calls_total", label: "Tool Calls", group: "tokens", render: r => text(r.summary.tool_calls_total), sortValue: r => r.summary.tool_calls_total, visible: hasValue(r => r.summary.tool_calls_total) },
+        { key: "output_tokens_per_second", label: "Throughput", group: "latency", render: r => tokensPerSecond(r.summary.output_tokens_per_second), sortValue: r => r.summary.output_tokens_per_second, visible: hasRecorded(r => r.summary.output_tokens_per_second) },
         { key: "end_to_end_latency_avg", label: "Average End-to-End Latency", group: "latency", render: r => seconds(r.summary.end_to_end_latency_avg), sortValue: r => r.summary.end_to_end_latency_avg, visible: hasValue(r => r.summary.end_to_end_latency_avg) },
+        { key: "cold_start_load_duration_seconds", label: "Cold-start Load Duration", group: "latency", render: r => seconds(r.summary.cold_start_load_duration_seconds), sortValue: r => r.summary.cold_start_load_duration_seconds, visible: hasValue(r => r.summary.cold_start_load_duration_seconds) },
+        { key: "load_duration_total", label: "Measured Load Duration", group: "latency", render: r => seconds(r.summary.load_duration_total), sortValue: r => r.summary.load_duration_total, visible: hasValue(r => r.summary.load_duration_total) },
+        { key: "warmup_resident_verified", label: "Warmup Resident", group: "latency", render: r => bool(r.summary.warmup_resident_verified), sortValue: r => r.summary.warmup_resident_verified, visible: hasRecorded(r => r.summary.warmup_resident_verified) },
         { key: "cost_total_usd", label: "Cost", group: "cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd, visible: hasValue(r => r.summary.cost_total_usd) },
         { key: "cost_per_correct_answer_usd", label: "Cost per Success", group: "cost", render: r => money(r.summary.cost_per_correct_answer_usd), sortValue: r => r.summary.cost_per_correct_answer_usd, visible: hasRecorded(r => r.summary.cost_per_correct_answer_usd) },
         { key: "local_resources_summary.cpu_avg_percent", label: "CPU Avg", group: "local_resources", render: r => percent(localSummary(r, "cpu_avg_percent")), sortValue: r => localSummary(r, "cpu_avg_percent"), visible: hasValue(r => localSummary(r, "cpu_avg_percent")) },
@@ -1978,8 +2063,6 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "local_resources_summary.gpu_avg_percent", label: "GPU Avg", group: "local_resources", render: r => percent(localSummary(r, "gpu_avg_percent")), sortValue: r => localSummary(r, "gpu_avg_percent"), visible: hasValue(r => localSummary(r, "gpu_avg_percent")) },
         { key: "local_resources_summary.gpu_power_avg_w", label: "GPU Power Avg", group: "local_resources", render: r => watts(localSummary(r, "gpu_power_avg_w")), sortValue: r => localSummary(r, "gpu_power_avg_w"), visible: hasValue(r => localSummary(r, "gpu_power_avg_w")) },
         { key: "local_resources_summary.gpu_energy_wh", label: "GPU Energy", group: "local_resources", render: r => wattHours(localSummary(r, "gpu_energy_wh")), sortValue: r => localSummary(r, "gpu_energy_wh"), visible: hasValue(r => localSummary(r, "gpu_energy_wh")) },
-        { key: "local_resources_summary.throughput_tokens_per_second", label: "Throughput", group: "local_resources", render: r => tokensPerSecond(localSummary(r, "throughput_tokens_per_second")), sortValue: r => localSummary(r, "throughput_tokens_per_second"), visible: hasValue(r => localSummary(r, "throughput_tokens_per_second")) },
-        { key: "local_resources_summary.load_time_seconds", label: "Load Time", group: "local_resources", render: r => seconds(localSummary(r, "load_time_seconds")), sortValue: r => localSummary(r, "load_time_seconds"), visible: hasValue(r => localSummary(r, "load_time_seconds")) },
       ];
       renderTable(
         document.getElementById("overview"),
@@ -1994,6 +2077,15 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "phase", label: "Phase" },
         { key: "provider", label: "Provider" },
         { key: "model_identifier", label: "Model Identifier" },
+        { key: "reasoning_mode", label: "Reasoning Mode" },
+        { key: "reasoning_effort", label: "Reasoning Effort" },
+        { key: "reasoning_support", label: "Reasoning Support" },
+        { key: "reasoning_supported_efforts", label: "Supported Efforts" },
+        { key: "temperature", label: "Temperature" },
+        { key: "temperature_supported", label: "Temperature Supported", render: r => bool(r.temperature_supported) },
+        { key: "seed", label: "Seed" },
+        { key: "seed_supported", label: "Seed Supported", render: r => bool(r.seed_supported) },
+        { key: "require_parameters", label: "Parameters Required", render: r => bool(r.require_parameters) },
       ];
       renderTable(document.getElementById("providerModels"), columns, report.provider_models);
     }
@@ -2016,20 +2108,18 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "tool_executable", label: "Tool Executable", group: "quality", render: q => bool(q.tool_executable), visible: hasRecorded(q => q.tool_executable) },
         { key: "cypher_solution_match", label: "Cypher Solution / Grounding Match", group: "quality", render: q => bool(q.cypher_solution_match), visible: hasRecorded(q => q.cypher_solution_match) },
         { key: "final_answer_match", label: "Final Answer Match", group: "quality", render: q => bool(q.final_answer_match) },
-        { key: "input_tokens", label: "New Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens) },
-        { key: "input_tokens_processed", label: "Processed Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens_processed) },
-        { key: "cached_input_tokens", label: "Cached Input Tokens", group: "tokens", visible: hasValue(q => q.cached_input_tokens) },
-        { key: "cache_write_input_tokens", label: "Cache Write Tokens", group: "tokens", visible: hasValue(q => q.cache_write_input_tokens) },
+        { key: "input_tokens", label: "Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens) },
+        { key: "cached_input_tokens", label: "Cached Input Tokens", group: "tokens" },
         { key: "output_tokens", label: "Output Tokens", group: "tokens", visible: hasValue(q => q.output_tokens) },
-        { key: "latency.output_tokens_per_second", label: "Throughput", group: "tokens", render: q => tokensPerSecond(questionThroughput(q)), sortValue: q => questionThroughput(q), visible: hasRecorded(q => questionThroughput(q)) },
+        { key: "reasoning_tokens", label: "Reasoning Tokens", group: "tokens" },
         { key: "n_tool_calls", label: "Tool Calls", group: "tokens", visible: hasValue(q => q.n_tool_calls) },
+        { key: "latency.output_tokens_per_second", label: "Throughput", group: "latency", render: q => tokensPerSecond(questionThroughput(q)), sortValue: q => questionThroughput(q), visible: hasRecorded(q => questionThroughput(q)) },
         { key: "latency.end_to_end_seconds", label: "End-to-End Latency", group: "latency", render: q => seconds(metric(q, "end_to_end_seconds")), visible: hasValue(q => metric(q, "end_to_end_seconds")) },
         { key: "latency.llm_call_seconds", label: "LLM Latency", group: "latency", render: q => seconds(metric(q, "llm_call_seconds")), visible: hasValue(q => metric(q, "llm_call_seconds")) },
         { key: "latency.tool_execution_seconds", label: "Tool Latency", group: "latency", render: q => seconds(metric(q, "tool_execution_seconds")), visible: hasValue(q => metric(q, "tool_execution_seconds")) },
         { key: "latency.neo4j_query_seconds", label: "Neo4j Latency", group: "latency", render: q => seconds(metric(q, "neo4j_query_seconds")), visible: hasValue(q => metric(q, "neo4j_query_seconds")) },
         { key: "latency.parsing_validation_seconds", label: "Validation Latency", group: "latency", render: q => seconds(metric(q, "parsing_validation_seconds")), visible: hasValue(q => metric(q, "parsing_validation_seconds")) },
         { key: "latency.retry_wait_seconds", label: "Retry Wait", group: "latency", render: q => seconds(metric(q, "retry_wait_seconds")), visible: hasValue(q => metric(q, "retry_wait_seconds")) },
-        { key: "latency.time_to_first_token_seconds", label: "Time to First Token", group: "latency", render: q => seconds(metric(q, "time_to_first_token_seconds")), visible: hasValue(q => metric(q, "time_to_first_token_seconds")) },
         { key: "cost", label: "Cost USD", group: "cost", render: q => money(cost(q)), sortValue: q => cost(q), visible: hasValue(q => cost(q)) },
         { key: "local_resources.cpu_avg_percent", label: "CPU Avg", group: "local_resources", render: q => percent(questionLocalSummary(q, "cpu_avg_percent")), sortValue: q => questionLocalSummary(q, "cpu_avg_percent"), visible: hasRecorded(q => questionLocalSummary(q, "cpu_avg_percent")) },
         { key: "local_resources.cpu_peak_percent", label: "CPU Peak", group: "local_resources", render: q => percent(questionLocalSummary(q, "cpu_peak_percent")), sortValue: q => questionLocalSummary(q, "cpu_peak_percent"), visible: hasRecorded(q => questionLocalSummary(q, "cpu_peak_percent")) },
@@ -2038,8 +2128,6 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "local_resources.gpu_avg_percent", label: "GPU Avg", group: "local_resources", render: q => percent(questionLocalSummary(q, "gpu_avg_percent")), sortValue: q => questionLocalSummary(q, "gpu_avg_percent"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_avg_percent")) },
         { key: "local_resources.gpu_power_avg_w", label: "GPU Power Avg", group: "local_resources", render: q => watts(questionLocalSummary(q, "gpu_power_avg_w")), sortValue: q => questionLocalSummary(q, "gpu_power_avg_w"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_power_avg_w")) },
         { key: "local_resources.gpu_energy_wh", label: "GPU Energy", group: "local_resources", render: q => wattHours(questionLocalSummary(q, "gpu_energy_wh")), sortValue: q => questionLocalSummary(q, "gpu_energy_wh"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_energy_wh")) },
-        { key: "local_resources.throughput_tokens_per_second", label: "Throughput", group: "local_resources", render: q => tokensPerSecond(questionLocalSummary(q, "throughput_tokens_per_second")), sortValue: q => questionLocalSummary(q, "throughput_tokens_per_second"), visible: hasRecorded(q => questionLocalSummary(q, "throughput_tokens_per_second")) },
-        { key: "local_resources.load_time_seconds", label: "Load Time", group: "local_resources", render: q => seconds(questionLocalSummary(q, "load_time_seconds")), sortValue: q => questionLocalSummary(q, "load_time_seconds"), visible: hasRecorded(q => questionLocalSummary(q, "load_time_seconds")) },
       ];
       renderTable(
         document.getElementById("questions"),
@@ -2098,6 +2186,9 @@ _HTML_TEMPLATE = """<!doctype html>
       const contentHtml = isToolCall
         ? `<details><summary>Raw message</summary><pre>${escapeHtml(prettyValue(message.raw_message || message.content))}</pre></details>`
         : `<pre>${escapeHtml(content)}</pre>`;
+      const bodyHtml = isToolCall
+        ? `${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${contentHtml}`
+        : `${contentHtml}${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}`;
       const toolName = message.tool_name ? ` · ${escapeHtml(message.tool_name)}` : "";
       const messageLabel = message.kind && message.kind !== "assistant_text"
         ? message.kind
@@ -2105,8 +2196,7 @@ _HTML_TEMPLATE = """<!doctype html>
       return `
         <article class="message-card">
           <div class="message-role">${index}. ${escapeHtml(roleLabel(messageLabel))}${toolName}</div>
-          ${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}
-          ${contentHtml}
+          ${bodyHtml}
         </article>
       `;
     }
@@ -2130,17 +2220,15 @@ _HTML_TEMPLATE = """<!doctype html>
       target.innerHTML = `
         <h3>Topic: ${escapeHtml(q.name)}</h3>
         <dl class="kv">
-          <dt>Source</dt><dd>${escapeHtml(q.source_path)}</dd>
           <dt>Configuration</dt><dd>${escapeHtml(q.configuration)}</dd>
           <dt>Provider / Model</dt><dd>${escapeHtml(q.provider_model)}</dd>
           <dt>Tool Executable</dt><dd>${bool(q.tool_executable)}</dd>
           <dt>Cypher Solution / Grounding Match</dt><dd>${bool(q.cypher_solution_match)}</dd>
           <dt>Final Answer Match</dt><dd>${bool(q.final_answer_match)}</dd>
-          <dt>New Input Tokens</dt><dd>${escapeHtml(q.input_tokens)}</dd>
-          <dt>Processed Input Tokens</dt><dd>${escapeHtml(q.input_tokens_processed)}</dd>
+          <dt>Input Tokens</dt><dd>${escapeHtml(q.input_tokens)}</dd>
           <dt>Cached Input Tokens</dt><dd>${escapeHtml(q.cached_input_tokens)}</dd>
-          <dt>Cache Write Tokens</dt><dd>${escapeHtml(q.cache_write_input_tokens)}</dd>
           <dt>Output Tokens</dt><dd>${escapeHtml(q.output_tokens)}</dd>
+          <dt>Reasoning Tokens</dt><dd>${escapeHtml(q.reasoning_tokens)}</dd>
           <dt>Tool Calls</dt><dd>${escapeHtml(q.n_tool_calls)}</dd>
         </dl>
         <h4>Question</h4><pre>${escapeHtml(q.question)}</pre>
@@ -2149,9 +2237,24 @@ _HTML_TEMPLATE = """<!doctype html>
         <h4>Generated Cypher</h4><pre>${escapeHtml(prettyValue(q.generated_cypher))}</pre>
         <h4>Cypher Tool Output</h4><pre>${escapeHtml(prettyValue(q.cypher_tool_output))}</pre>
         <h4>Cypher Validation Issues</h4><pre>${escapeHtml(prettyValue(q.cypher_validation_issues || []))}</pre>
-        <h4>Latency (s)</h4><pre>${escapeHtml(JSON.stringify(q.latency || {}, null, 2))}</pre>
-        <h4>Cost</h4><pre>${escapeHtml(JSON.stringify(q.cost || {}, null, 2))}</pre>
-        <h4>Local Resources</h4><pre>${escapeHtml(JSON.stringify(q.configuration_local_resources || q.local_resources || {}, null, 2))}</pre>
+        <details class="validation-detail-group">
+            <summary>Latency</summary>
+            <div class="validation-detail-group-body">
+                <pre>${escapeHtml(JSON.stringify(q.latency || {}, null, 2))}</pre>
+            </div>
+        </details>
+        <details class="validation-detail-group">
+            <summary>Cost</summary>
+            <div class="validation-detail-group-body">
+                <pre>${escapeHtml(JSON.stringify(q.cost || {}, null, 2))}</pre>
+            </div>
+        </details>
+        <details class="validation-detail-group">
+            <summary>Local Resources</summary>
+            <div class="validation-detail-group-body">
+                <pre>${escapeHtml(JSON.stringify(q.local_resources || {}, null, 2))}</pre>
+            </div>
+        </details>
         <details class="validation-detail-group">
           <summary>Messages (${(q.sequences || []).reduce((total, sequence) => total + (sequence.messages || []).length, 0)})</summary>
           <div class="validation-detail-group-body">

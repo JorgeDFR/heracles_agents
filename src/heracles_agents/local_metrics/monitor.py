@@ -31,7 +31,7 @@ class LocalMetricsConfig:
     ollama_container_name: str = "ollama"
     docker_host: str = "tcp://docker-socket-proxy:2375"
     ollama_host: str = "http://ollama:11434"
-    sample_interval_seconds: float = 0.025
+    sample_interval_seconds: float = 0.1
     gpu_baseline_seconds: float = 5.0
     unload_models_before_baseline: bool = True
     baseline_adjust_gpu: bool = True
@@ -41,6 +41,8 @@ class LocalMetricsConfig:
     warmup_requests: int = 1
     warmup_prompt: str = "Reply with OK."
     warmup_timeout_seconds: float = 7200.0
+    warmup_keep_alive: str | int = -1
+    warmup_verify_resident: bool = True
 
 
 @dataclass
@@ -110,6 +112,50 @@ class LocalResourceMeasurement:
             "warnings": list(dict.fromkeys(warnings)),
         }
 
+    def timestamp(self) -> float:
+        """Return a clock value compatible with telemetry sample timestamps."""
+
+        return time.monotonic()
+
+    def summary_between(self, started_at: float, stopped_at: float) -> dict[str, Any]:
+        """Summarize samples collected during one question's time window."""
+
+        with self._lock:
+            docker_samples = [
+                sample
+                for sample in self.docker_samples
+                if started_at <= sample.timestamp_monotonic <= stopped_at
+            ]
+            gpu_samples = [
+                sample
+                for sample in self.gpu_samples
+                if started_at <= sample.timestamp_monotonic <= stopped_at
+            ]
+        cpu, ram = summarize_docker_samples(docker_samples)
+        gpu = summarize_gpu_samples(
+            gpu_samples,
+            self.baseline_gpu_samples if self.config.baseline_adjust_gpu else [],
+            sample_interval_seconds=self.config.sample_interval_seconds,
+        )
+        return {
+            "measurement_scope": "question_window",
+            "ollama_container_name": self.config.ollama_container_name,
+            "sample_interval_seconds": self.config.sample_interval_seconds,
+            "baseline_seconds": self.config.gpu_baseline_seconds,
+            "baseline_adjusted": self.config.baseline_adjust_gpu,
+            "telemetry": {
+                "measurement_duration_seconds": _round_or_none(
+                    max(0.0, stopped_at - started_at)
+                ),
+                "docker_sample_count": len(docker_samples),
+                "gpu_sample_count": len(gpu_samples),
+            },
+            "cpu": cpu,
+            "ram": ram,
+            "gpu": gpu,
+            "warnings": [],
+        }
+
     def raw_samples(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -123,6 +169,8 @@ class LocalResourceMeasurement:
                     "baseline_adjust_gpu": self.config.baseline_adjust_gpu,
                     "warmup_enabled": self.config.warmup_enabled,
                     "warmup_requests": self.config.warmup_requests,
+                    "warmup_keep_alive": self.config.warmup_keep_alive,
+                    "warmup_verify_resident": self.config.warmup_verify_resident,
                 },
                 "telemetry": self._telemetry_summary_locked(),
                 "poll_timestamps": {
@@ -332,7 +380,7 @@ def config_from_mapping(data: dict[str, Any] | None) -> LocalMetricsConfig:
             or "http://ollama:11434"
         ),
         sample_interval_seconds=float(
-            data.get("sample_interval_seconds", 0.025)
+            data.get("sample_interval_seconds", 0.1)
         ),
         gpu_baseline_seconds=float(
             data.get("gpu_baseline_seconds", 5.0)
@@ -358,6 +406,10 @@ def config_from_mapping(data: dict[str, Any] | None) -> LocalMetricsConfig:
         warmup_requests=max(1, int(data.get("warmup_requests", 1))),
         warmup_prompt=str(data.get("warmup_prompt") or "Reply with OK."),
         warmup_timeout_seconds=float(data.get("warmup_timeout_seconds", 7200)),
+        warmup_keep_alive=data.get("warmup_keep_alive", -1),
+        warmup_verify_resident=_as_bool(
+            data.get("warmup_verify_resident"), True
+        ),
     )
 
 

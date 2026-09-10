@@ -1,10 +1,11 @@
 import copy
 from functools import partial
-from typing import Generic, Optional, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 
 from plum import parametric
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
+from heracles_agents.inference_parameters import ReasoningSettings
 from heracles_agents.provider_integrations.model_client_interfaces import get_client_union_type
 from heracles_agents.prompt import PromptSettings
 from heracles_agents.pydantic_discriminated_dispatch import (
@@ -23,10 +24,20 @@ class ModelInfo(BaseModel):
     """
 
     model: str
-    temperature: float = 1.0
+    temperature: Optional[float] = 1.0
     seed: Optional[int] = None
-    reasoning: Optional[str] = None
+    reasoning: Optional[ReasoningSettings] = None
+    parameter_capabilities: dict[str, Any] = Field(default_factory=dict)
     response_format: str = "text"
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def normalize_legacy_reasoning(cls, value):
+        if isinstance(value, str):
+            return {"mode": "enabled", "effort": value}
+        if isinstance(value, bool):
+            return {"mode": "enabled" if value else "disabled"}
+        return value
 
 
 def apply_bound_args(tool_name, bound_args):

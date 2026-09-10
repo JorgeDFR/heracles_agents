@@ -142,8 +142,6 @@ def apply_process_memory_from_top(
     sample.process_rss_bytes = memory["process_rss_bytes"]
     sample.process_vsz_bytes = memory["process_vsz_bytes"]
     sample.process_count = memory["process_count"]
-    if sample.process_rss_bytes is not None:
-        sample.memory_usage_bytes = sample.process_rss_bytes
     return sample
 
 
@@ -206,10 +204,13 @@ def summarize_docker_samples(
         online_cpus = current.online_cpus or previous.online_cpus
         if online_cpus:
             cpu_normalized_values.append(round(value / online_cpus, 6))
+    # The cgroup working set is the canonical container RAM measurement. Process
+    # RSS remains useful diagnostics, but summing RSS across Ollama processes can
+    # double-count shared mappings and substantially overstate container memory.
     ram_values = [
-        sample.memory_usage_bytes
+        sample.memory_cgroup_working_set_bytes
         for sample in samples
-        if sample.memory_usage_bytes is not None
+        if sample.memory_cgroup_working_set_bytes is not None
     ]
     ram_including_cache_values = [
         sample.memory_usage_including_cache_bytes
@@ -261,9 +262,7 @@ def summarize_docker_samples(
         "sample_count": len(samples),
     }
     ram = {
-        "container_ram_measurement_source": "docker_top_process_rss"
-        if process_rss_values
-        else "docker_cgroup_working_set",
+        "container_ram_measurement_source": "docker_cgroup_working_set",
         "container_process_rss_available": bool(process_rss_values),
         "container_ram_bytes_avg": int(round(_avg(ram_values)))
         if ram_values

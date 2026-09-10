@@ -181,10 +181,28 @@ def build_llm_metadata(
         )
         phases = {}
         for phase_name, agent in experiment_config.phases.items():
-            phases[phase_name] = {
+            reasoning = getattr(agent.model_info, "reasoning", None)
+            if hasattr(reasoning, "model_dump"):
+                reasoning = reasoning.model_dump(mode="json")
+            phase_metadata = {
                 "provider": agent.client.client_type,
                 "model_identifier": agent.model_info.model,
+                "request_parameters": {
+                    "temperature": getattr(agent.model_info, "temperature", None),
+                    "seed": getattr(agent.model_info, "seed", None),
+                    "reasoning": reasoning,
+                },
             }
+            parameter_capabilities = getattr(
+                agent.model_info, "parameter_capabilities", {}
+            )
+            if parameter_capabilities:
+                phase_metadata["parameter_capabilities"] = parameter_capabilities
+            if hasattr(agent.client, "require_parameters"):
+                phase_metadata["require_parameters"] = (
+                    agent.client.require_parameters
+                )
+            phases[phase_name] = phase_metadata
         llm_configurations[result_configuration_name] = {"phases": phases}
     return llm_configurations
 

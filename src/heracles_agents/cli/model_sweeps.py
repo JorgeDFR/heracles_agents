@@ -126,6 +126,26 @@ def expand_model_sweeps(
                     "a mapping."
                 )
             model_info["model"] = model
+            parameters = model_entry.get("parameters")
+            if parameters is not None:
+                if not isinstance(parameters, dict):
+                    raise ValueError(
+                        f"Model '{alias}' in sweep '{sweep_name}' field "
+                        "'parameters' must be a mapping."
+                    )
+                for parameter_name in ("temperature", "seed", "reasoning"):
+                    if parameter_name in parameters:
+                        model_info[parameter_name] = copy.deepcopy(
+                            parameters[parameter_name]
+                        )
+            capabilities = model_entry.get("capabilities")
+            if capabilities is not None:
+                if not isinstance(capabilities, dict):
+                    raise ValueError(
+                        f"Model '{alias}' in sweep '{sweep_name}' field "
+                        "'capabilities' must be a mapping."
+                    )
+                model_info["parameter_capabilities"] = copy.deepcopy(capabilities)
 
             configurations[configuration_name] = generated_config
             sweep_context["result_configuration_names"][

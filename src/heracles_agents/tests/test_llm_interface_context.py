@@ -99,6 +99,7 @@ def test_process_answer_falls_back_to_extractor(monkeypatch):
 
 def test_agent_context_initialize_and_call_llm_retries(monkeypatch):
     calls = []
+    token_counts = []
 
     def flaky_call(model_info, tools, response_format, history):
         calls.append((model_info, tools, response_format, history))
@@ -110,7 +111,11 @@ def test_agent_context_initialize_and_call_llm_retries(monkeypatch):
     context = AgentContext(agent)
 
     monkeypatch.setattr(llm_interface, "generate_prompt_for_agent", lambda prompt, agent: ["hello"])
-    monkeypatch.setattr(llm_interface, "count_message_tokens", lambda agent, messages: 7)
+    monkeypatch.setattr(
+        llm_interface,
+        "count_message_tokens",
+        lambda agent, messages: token_counts.append(messages) or 7,
+    )
     monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda agent_info: ["tool"])
     monkeypatch.setattr(llm_interface.time, "sleep", lambda seconds: None)
     metric_times = iter([1.0, 1.25, 2.0, 2.5, 3.0, 3.5])
@@ -118,13 +123,14 @@ def test_agent_context_initialize_and_call_llm_retries(monkeypatch):
 
     context.initialize_agent("prompt")
     assert context.history == ["hello"]
-    assert context.initial_input_tokens == 7
+    assert context.initial_input_tokens == 0
+    assert token_counts == []
 
     assert context.call_llm(context.history) == "ok"
     assert len(calls) == 2
     assert calls[-1][1:] == (["tool"], "text", ["hello"])
+    assert token_counts == [["hello"], "ok"]
     assert context.total_input_tokens == 7
-    assert context.total_input_tokens_processed == 14
     assert context.llm_call_seconds == 0.75
     assert context.retry_wait_seconds == 0.5
 
@@ -168,7 +174,11 @@ def test_agent_context_records_openrouter_cost_call(monkeypatch):
     context = AgentContext(agent)
 
     monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda agent_info: [])
-    monkeypatch.setattr(llm_interface, "count_message_tokens", lambda agent, messages: 99)
+    monkeypatch.setattr(
+        llm_interface,
+        "count_message_tokens",
+        lambda *_args: pytest.fail("provider usage should avoid local token counting"),
+    )
 
     assert context.call_llm(["history"]) is response
     assert len(context.llm_call_costs) == 1
@@ -182,10 +192,10 @@ def test_agent_context_records_openrouter_cost_call(monkeypatch):
     assert context.llm_call_costs[0].observed_call_seconds is not None
     assert context.llm_call_costs[0].throughput_source == "observed_call_wall_time"
     assert context.total_input_tokens == 12
-    assert context.total_input_tokens_processed == 12
+    assert context.total_output_tokens == 4
 
 
-def test_agent_context_separates_new_processed_and_cached_input_tokens(monkeypatch):
+def test_agent_context_sums_openrouter_usage_tokens_across_calls(monkeypatch):
     responses = iter(
         [
             SimpleNamespace(
@@ -199,6 +209,7 @@ def test_agent_context_separates_new_processed_and_cached_input_tokens(monkeypat
                         cached_tokens=2,
                         cache_write_tokens=3,
                     ),
+                    completion_tokens_details=SimpleNamespace(reasoning_tokens=1),
                 ),
             ),
             SimpleNamespace(
@@ -212,6 +223,7 @@ def test_agent_context_separates_new_processed_and_cached_input_tokens(monkeypat
                         cached_tokens=8,
                         cache_write_tokens=0,
                     ),
+                    completion_tokens_details=SimpleNamespace(reasoning_tokens=2),
                 ),
             ),
         ]
@@ -227,17 +239,39 @@ def test_agent_context_separates_new_processed_and_cached_input_tokens(monkeypat
     monkeypatch.setattr(
         llm_interface,
         "count_message_tokens",
-        lambda _agent, messages: len(messages) * 10,
+        lambda *_args: pytest.fail("provider usage should avoid local token counting"),
     )
 
     context.call_llm(["initial"])
     context.call_llm(["initial", "tool response"])
 
-    assert context.total_input_tokens == 15
-    assert context.total_input_tokens_processed == 25
+    assert context.total_input_tokens == 25
+    assert context.total_output_tokens == 5
     assert context.cached_input_tokens == 10
-    assert context.cache_write_input_tokens == 3
+    assert context.reasoning_tokens == 3
     assert context.llm_call_costs[1].cached_input_tokens == 8
+    assert context.llm_call_costs[1].reasoning_tokens == 2
+
+
+def test_agent_context_prefers_ollama_response_token_counts(monkeypatch):
+    response = SimpleNamespace(prompt_eval_count=42, eval_count=7)
+    agent = make_agent(
+        client=SimpleNamespace(
+            client_type="ollama",
+            call=lambda *_args: response,
+        )
+    )
+    context = AgentContext(agent)
+    monkeypatch.setattr(llm_interface, "generate_tools_for_agent", lambda _info: [])
+    monkeypatch.setattr(
+        llm_interface,
+        "count_message_tokens",
+        lambda *_args: pytest.fail("Ollama counts should avoid local estimation"),
+    )
+
+    assert context.call_llm(["history"]) is response
+    assert context.total_input_tokens == 42
+    assert context.total_output_tokens == 7
 
 
 def test_agent_context_call_llm_raises_after_retries(monkeypatch):
@@ -280,7 +314,7 @@ def test_agent_context_handle_response_processes_only_tool_messages(monkeypatch)
         {"message": "tool-call", "result": "result"}
     ]
     assert context.n_tool_calls == 1
-    assert context.total_output_tokens == 4
+    assert context.total_output_tokens == 0
     assert context.tool_execution_seconds == pytest.approx(0.4)
 
 
@@ -385,8 +419,7 @@ def test_experiment_result_dump_uses_compact_ordered_yaml_shape():
         "neo4j_query_seconds": 0.0,
         "parsing_validation_seconds": 0.01,
         "retry_wait_seconds": 0.0,
-        "time_to_first_token_seconds": None,
-    }
+        }
     assert "cost" not in dumped_question["analysis"]
     assert (
         "cost_summary"
@@ -401,13 +434,13 @@ def test_make_latency_metrics_aggregates_contexts():
             llm_call_seconds=1.2345678,
             tool_execution_seconds=0.2,
             retry_wait_seconds=0.3,
-            time_to_first_token_seconds=0.9,
+            local_llm_runtime_metrics=[],
         ),
         SimpleNamespace(
             llm_call_seconds=2.0,
             tool_execution_seconds=0.4,
             retry_wait_seconds=0.0,
-            time_to_first_token_seconds=0.7,
+            local_llm_runtime_metrics=[],
         ),
     ]
 
@@ -424,7 +457,40 @@ def test_make_latency_metrics_aggregates_contexts():
     assert latency.retry_wait_seconds == 0.3
     assert latency.parsing_validation_seconds == 0.05
     assert latency.neo4j_query_seconds == 0.25
-    assert latency.time_to_first_token_seconds == 0.7
+    assert latency.load_duration_seconds is None
+
+
+def test_make_latency_metrics_prefers_ollama_response_timings():
+    context = SimpleNamespace(
+        llm_call_seconds=12.5,
+        successful_llm_call_seconds=12.5,
+        tool_execution_seconds=0.0,
+        retry_wait_seconds=0.0,
+        total_output_tokens=40,
+        local_llm_runtime_metrics=[
+            {
+                "total_duration_seconds": 10.0,
+                "load_duration_seconds": 1.0,
+                "prompt_eval_count": 100,
+                "prompt_eval_duration_seconds": 2.0,
+                "eval_count": 40,
+                "eval_duration_seconds": 4.0,
+                "prompt_tokens_per_second": 50.0,
+                "output_tokens_per_second": 10.0,
+                "steady_state_seconds": 6.0,
+            }
+        ],
+    )
+
+    latency = make_latency_metrics(contexts=[context], end_to_end_seconds=13.0)
+
+    assert latency.ollama_total_duration_seconds == 10.0
+    assert latency.load_duration_seconds == 1.0
+    assert latency.prompt_eval_duration_seconds == 2.0
+    assert latency.generation_duration_seconds == 4.0
+    assert latency.client_overhead_seconds == 2.5
+    assert latency.output_tokens_per_second == 10.0
+    assert latency.throughput_source == "ollama_eval_duration"
 
 
 def test_openrouter_cost_metrics_do_not_fetch_generation_stats():

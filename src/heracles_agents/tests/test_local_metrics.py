@@ -21,6 +21,7 @@ from heracles_agents.local_metrics.gpu_stats import (
 )
 from heracles_agents.local_metrics.monitor import (
     LocalMetricsConfig,
+    LocalResourceMeasurement,
     LocalResourceMonitor,
 )
 from heracles_agents.local_metrics.ollama_runtime import (
@@ -150,7 +151,7 @@ def test_docker_proxy_client_parses_container_stats_response():
     )
 
 
-def test_docker_top_process_memory_replaces_default_ram_estimate():
+def test_docker_top_process_memory_is_diagnostic_not_canonical_ram():
     sample = DockerContainerStatsSample(
         timestamp_monotonic=1,
         cpu_total_usage=None,
@@ -175,10 +176,10 @@ def test_docker_top_process_memory_replaces_default_ram_estimate():
 
     assert parsed["process_rss_bytes"] == 500 * 1024
     assert parsed["process_vsz_bytes"] == 3000 * 1024
-    assert sample.memory_usage_bytes == 500 * 1024
+    assert sample.memory_usage_bytes == 100
     assert sample.memory_cgroup_working_set_bytes == 100
-    assert ram["container_ram_bytes_peak"] == 500 * 1024
-    assert ram["container_ram_measurement_source"] == "docker_top_process_rss"
+    assert ram["container_ram_bytes_peak"] == 100
+    assert ram["container_ram_measurement_source"] == "docker_cgroup_working_set"
     assert ram["container_process_rss_available"] is True
     assert ram["container_ram_working_set_bytes_peak"] == 100
     assert ram["container_process_rss_bytes_peak"] == 500 * 1024
@@ -265,12 +266,20 @@ def test_ollama_warmup_runs_before_measurement_and_records_result(monkeypatch):
             return None
 
         def read(self):
-            return b"{}"
+            return (
+                b'{"total_duration":2000000000,"load_duration":1000000000,'
+                b'"prompt_eval_count":2,"prompt_eval_duration":200000000,'
+                b'"eval_count":1,"eval_duration":100000000}'
+            )
 
     requests = []
     monkeypatch.setattr(
         "heracles_agents.pipelines.local_metrics.urllib.request.urlopen",
         lambda request, timeout: requests.append((request, timeout)) or Response(),
+    )
+    monkeypatch.setattr(
+        "heracles_agents.pipelines.local_metrics.list_loaded_models",
+        lambda _host: [{"name": "test-model"}],
     )
     monitor = LocalResourceMonitor(
         LocalMetricsConfig(enabled=True, warmup_enabled=True, warmup_requests=1)
@@ -289,6 +298,10 @@ def test_ollama_warmup_runs_before_measurement_and_records_result(monkeypatch):
     assert len(requests) == 1
     assert monitor.warmup["requests"][0]["model"] == "test-model"
     assert monitor.warmup["requests"][0]["succeeded"] is True
+    assert monitor.warmup["requests"][0]["kind"] == "cold_start"
+    assert monitor.warmup["requests"][0]["load_duration_seconds"] == 1
+    assert monitor.warmup["resident_verified"] is True
+    assert b'"keep_alive": -1' in requests[0][0].data
 
 
 def test_monitor_returns_warnings_when_sources_are_unavailable():
@@ -312,3 +325,30 @@ def test_monitor_returns_warnings_when_sources_are_unavailable():
     assert summary["cpu"]["sample_count"] == 0
     assert any("Docker proxy metrics unavailable" in w for w in summary["warnings"])
     assert any("nvidia-smi GPU metrics unavailable" in w for w in summary["warnings"])
+
+
+def test_measurement_summarizes_samples_within_question_window():
+    measurement = LocalResourceMeasurement(
+        config=LocalMetricsConfig(enabled=True, sample_interval_seconds=0.1),
+        baseline_gpu_samples=[],
+        docker_samples=[
+            DockerContainerStatsSample(0.5, 0, 0, 1, 10, 100, 1, 10),
+            DockerContainerStatsSample(1.1, 100, 1000, 1, 20, 100, 1, 20),
+            DockerContainerStatsSample(1.9, 200, 2000, 1, 30, 100, 1, 30),
+            DockerContainerStatsSample(2.5, 300, 3000, 1, 40, 100, 1, 40),
+        ],
+        gpu_samples=[
+            GpuStatsSample(0.5, 0, "GPU", 100, 1000, 0, 0, 10),
+            GpuStatsSample(1.2, 0, "GPU", 200, 1000, 50, 10, 40),
+            GpuStatsSample(1.8, 0, "GPU", 300, 1000, 70, 20, 60),
+            GpuStatsSample(2.5, 0, "GPU", 100, 1000, 0, 0, 10),
+        ],
+    )
+
+    summary = measurement.summary_between(1.0, 2.0)
+
+    assert summary["measurement_scope"] == "question_window"
+    assert summary["telemetry"]["docker_sample_count"] == 2
+    assert summary["telemetry"]["gpu_sample_count"] == 2
+    assert summary["ram"]["container_ram_bytes_peak"] == 30
+    assert summary["gpu"]["gpu_utilization_percent_raw_avg"] == 60

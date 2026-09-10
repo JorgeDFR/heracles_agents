@@ -35,6 +35,7 @@ from heracles_agents.normalized_response import (
 )
 from heracles_agents.local_metrics.ollama_runtime import (
     extract_ollama_response_metrics,
+    summarize_ollama_metrics,
 )
 from heracles_agents.tool_calling.rendering import has_tool_renderer, render_tool_for_interface
 
@@ -106,8 +107,28 @@ class LatencyMetrics(BaseModel):
     neo4j_query_seconds: float = 0.0
     parsing_validation_seconds: float = 0.0
     retry_wait_seconds: float = 0.0
-    time_to_first_token_seconds: Optional[float] = None
+    ollama_total_duration_seconds: Optional[float] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    load_duration_seconds: Optional[float] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    prompt_eval_duration_seconds: Optional[float] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    generation_duration_seconds: Optional[float] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    client_overhead_seconds: Optional[float] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    prompt_tokens_per_second: Optional[float] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     output_tokens_per_second: Optional[float] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    throughput_source: Optional[str] = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
@@ -123,7 +144,7 @@ class LlmCallCost(BaseModel):
     billed_input_tokens: Optional[int] = None
     billed_output_tokens: Optional[int] = None
     cached_input_tokens: Optional[int] = None
-    cache_write_input_tokens: Optional[int] = None
+    reasoning_tokens: Optional[int] = None
     generation_time_seconds: Optional[float] = None
     observed_call_seconds: Optional[float] = None
     output_tokens_per_second: Optional[float] = None
@@ -163,14 +184,12 @@ class ConfigurationAnalysisSummary(BaseModel):
     tool_executable_rate: Optional[float] = None
     input_tokens_total: int = 0
     input_tokens_avg: Optional[float] = None
-    input_tokens_processed_total: int = 0
-    input_tokens_processed_avg: Optional[float] = None
     cached_input_tokens_total: int = 0
     cached_input_tokens_avg: Optional[float] = None
-    cache_write_input_tokens_total: int = 0
-    cache_write_input_tokens_avg: Optional[float] = None
     output_tokens_total: int = 0
     output_tokens_avg: Optional[float] = None
+    reasoning_tokens_total: int = 0
+    reasoning_tokens_avg: Optional[float] = None
     tool_calls_total: int = 0
     tool_calls_avg: Optional[float] = None
     output_tokens_per_second: Optional[float] = None
@@ -188,7 +207,6 @@ class LocalResourceMetrics(BaseModel):
     cpu: dict = Field(default_factory=dict)
     ram: dict = Field(default_factory=dict)
     gpu: dict = Field(default_factory=dict)
-    ollama: dict = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -207,9 +225,8 @@ class QuestionAnalysis(BaseModel):
     input_tokens: int
     output_tokens: int
     n_tool_calls: int
-    input_tokens_processed: int = 0
     cached_input_tokens: int = 0
-    cache_write_input_tokens: int = 0
+    reasoning_tokens: int = 0
     latency: LatencyMetrics = Field(default_factory=LatencyMetrics)
     cost: Optional[CostMetrics] = Field(
         default=None, exclude_if=lambda value: value is None
@@ -222,8 +239,6 @@ class QuestionAnalysis(BaseModel):
     def populate_compatibility_metrics(self):
         if self.final_answer_match is None:
             self.final_answer_match = self.correct
-        if self.input_tokens_processed == 0 and self.input_tokens:
-            self.input_tokens_processed = self.input_tokens
         return self
 
 
@@ -270,17 +285,26 @@ def make_latency_metrics(
     parsing_validation_seconds: float = 0.0,
     neo4j_query_seconds: float = 0.0,
 ) -> LatencyMetrics:
-    first_token_times = [
-        getattr(context, "time_to_first_token_seconds", None)
-        for context in contexts
-        if getattr(context, "time_to_first_token_seconds", None) is not None
-    ]
     successful_llm_seconds = sum(
         getattr(context, "successful_llm_call_seconds", 0.0) for context in contexts
     )
     output_tokens = sum(
         getattr(context, "total_output_tokens", 0) for context in contexts
     )
+    ollama_metrics = [
+        metric
+        for context in contexts
+        for metric in getattr(context, "local_llm_runtime_metrics", [])
+    ]
+    ollama = summarize_ollama_metrics(ollama_metrics)
+    ollama_total_seconds = ollama.get("total_duration_seconds")
+    ollama_generation_seconds = ollama.get("eval_duration_seconds")
+    output_throughput = ollama.get("output_tokens_per_second")
+    throughput_source = "ollama_eval_duration" if output_throughput is not None else None
+    if output_throughput is None and successful_llm_seconds > 0:
+        output_throughput = round(output_tokens / successful_llm_seconds, 6)
+        throughput_source = "observed_call_wall_time"
+
     return LatencyMetrics(
         end_to_end_seconds=round(end_to_end_seconds, 6),
         llm_call_seconds=round(
@@ -299,14 +323,18 @@ def make_latency_metrics(
             sum(getattr(context, "retry_wait_seconds", 0.0) for context in contexts),
             6,
         ),
-        time_to_first_token_seconds=(
-            round(min(first_token_times), 6) if first_token_times else None
-        ),
-        output_tokens_per_second=(
-            round(output_tokens / successful_llm_seconds, 6)
-            if successful_llm_seconds > 0
+        ollama_total_duration_seconds=ollama_total_seconds,
+        load_duration_seconds=ollama.get("load_duration_seconds"),
+        prompt_eval_duration_seconds=ollama.get("prompt_eval_duration_seconds"),
+        generation_duration_seconds=ollama_generation_seconds,
+        client_overhead_seconds=(
+            round(max(0.0, successful_llm_seconds - ollama_total_seconds), 6)
+            if ollama_total_seconds is not None
             else None
         ),
+        prompt_tokens_per_second=ollama.get("prompt_tokens_per_second"),
+        output_tokens_per_second=output_throughput,
+        throughput_source=throughput_source,
     )
 
 
@@ -348,33 +376,23 @@ def make_cost_metrics(contexts) -> Optional[CostMetrics]:
     )
 
 
-def make_input_token_metrics(contexts) -> dict[str, int]:
-    """Return logical, processed, and provider cache input-token totals.
+def make_usage_token_metrics(contexts) -> dict[str, int]:
+    """Sum provider-reported usage details across a conversation's LLM calls."""
 
-    ``input_tokens`` counts each growing conversation prefix once. By contrast,
-    ``input_tokens_processed`` is the sum reported/estimated for every provider
-    request, so it intentionally includes repeated context and retries.
-    """
-
-    logical = sum(
-        getattr(
-            context,
-            "total_input_tokens",
-            getattr(context, "initial_input_tokens", 0),
-        )
-        for context in contexts
-    )
-    processed = sum(
-        getattr(context, "total_input_tokens_processed", 0) for context in contexts
-    )
     return {
-        "input_tokens": logical,
-        "input_tokens_processed": processed or logical,
+        "input_tokens": sum(
+            getattr(
+                context,
+                "total_input_tokens",
+                getattr(context, "initial_input_tokens", 0),
+            )
+            for context in contexts
+        ),
         "cached_input_tokens": sum(
             getattr(context, "cached_input_tokens", 0) for context in contexts
         ),
-        "cache_write_input_tokens": sum(
-            getattr(context, "cache_write_input_tokens", 0) for context in contexts
+        "reasoning_tokens": sum(
+            getattr(context, "reasoning_tokens", 0) for context in contexts
         ),
     }
 
@@ -453,21 +471,15 @@ def make_configuration_analysis_summary(
         _number_or_zero(getattr(getattr(q, "analysis", None), "input_tokens", 0))
         for q in analyzed_questions
     ]
-    input_tokens_processed = [
-        _number_or_zero(
-            getattr(getattr(q, "analysis", None), "input_tokens_processed", 0)
-        )
-        for q in analyzed_questions
-    ]
     cached_input_tokens = [
         _number_or_zero(
             getattr(getattr(q, "analysis", None), "cached_input_tokens", 0)
         )
         for q in analyzed_questions
     ]
-    cache_write_input_tokens = [
+    reasoning_tokens = [
         _number_or_zero(
-            getattr(getattr(q, "analysis", None), "cache_write_input_tokens", 0)
+            getattr(getattr(q, "analysis", None), "reasoning_tokens", 0)
         )
         for q in analyzed_questions
     ]
@@ -491,6 +503,19 @@ def make_configuration_analysis_summary(
                 provider_generation_seconds += timed_seconds
                 provider_output_tokens += call.output_tokens
     llm_call_seconds = _latency_values(analyzed_questions, "llm_call_seconds")
+    ollama_generation_seconds = _latency_values(
+        analyzed_questions, "generation_duration_seconds"
+    )
+    ollama_output_tokens = sum(
+        _number_or_zero(getattr(getattr(q, "analysis", None), "output_tokens", 0))
+        for q in analyzed_questions
+        if getattr(
+            getattr(getattr(q, "analysis", None), "latency", None),
+            "generation_duration_seconds",
+            None,
+        )
+        is not None
+    )
 
     return ConfigurationAnalysisSummary(
         questions=n_questions,
@@ -512,18 +537,18 @@ def make_configuration_analysis_summary(
         tool_executable_rate=_rate(tool_executable_count, tool_executable_evaluated),
         input_tokens_total=sum(input_tokens),
         input_tokens_avg=_avg(input_tokens),
-        input_tokens_processed_total=sum(input_tokens_processed),
-        input_tokens_processed_avg=_avg(input_tokens_processed),
         cached_input_tokens_total=sum(cached_input_tokens),
         cached_input_tokens_avg=_avg(cached_input_tokens),
-        cache_write_input_tokens_total=sum(cache_write_input_tokens),
-        cache_write_input_tokens_avg=_avg(cache_write_input_tokens),
         output_tokens_total=sum(output_tokens),
         output_tokens_avg=_avg(output_tokens),
+        reasoning_tokens_total=sum(reasoning_tokens),
+        reasoning_tokens_avg=_avg(reasoning_tokens),
         tool_calls_total=sum(tool_calls),
         tool_calls_avg=_avg(tool_calls),
         output_tokens_per_second=(
-            round(provider_output_tokens / provider_generation_seconds, 6)
+            round(ollama_output_tokens / sum(ollama_generation_seconds), 6)
+            if sum(ollama_generation_seconds) > 0
+            else round(provider_output_tokens / provider_generation_seconds, 6)
             if provider_generation_seconds > 0
             else round(sum(output_tokens) / sum(llm_call_seconds), 6)
             if sum(llm_call_seconds) > 0
@@ -559,6 +584,24 @@ def make_configuration_analysis_summary(
             ),
             "retry_wait_seconds_total": _sum_or_none(
                 _latency_values(analyzed_questions, "retry_wait_seconds")
+            ),
+            "ollama_total_duration_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "ollama_total_duration_seconds")
+            ),
+            "load_duration_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "load_duration_seconds")
+            ),
+            "load_duration_seconds_avg": _avg(
+                _latency_values(analyzed_questions, "load_duration_seconds")
+            ),
+            "prompt_eval_duration_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "prompt_eval_duration_seconds")
+            ),
+            "generation_duration_seconds_total": _sum_or_none(
+                ollama_generation_seconds
+            ),
+            "client_overhead_seconds_total": _sum_or_none(
+                _latency_values(analyzed_questions, "client_overhead_seconds")
             ),
         },
     )
@@ -671,24 +714,26 @@ def _get_attr_or_key(value, name):
     return getattr(value, name, None)
 
 
-def _extract_cache_input_tokens(usage) -> tuple[int, int]:
-    """Read cache metrics across OpenRouter/OpenAI and Anthropic usage shapes."""
+def _extract_usage_details(usage) -> tuple[int, int]:
+    """Read cached-input and reasoning tokens from common usage shapes."""
 
     prompt_details = (
         _get_attr_or_key(usage, "prompt_tokens_details")
         or _get_attr_or_key(usage, "input_tokens_details")
     )
     cached = _coerce_int(_get_attr_or_key(prompt_details, "cached_tokens"))
-    cache_write = _coerce_int(
-        _get_attr_or_key(prompt_details, "cache_write_tokens")
+    completion_details = (
+        _get_attr_or_key(usage, "completion_tokens_details")
+        or _get_attr_or_key(usage, "output_tokens_details")
+    )
+    reasoning = _coerce_int(
+        _get_attr_or_key(completion_details, "reasoning_tokens")
     )
     if cached is None:
         cached = _coerce_int(_get_attr_or_key(usage, "cache_read_input_tokens"))
-    if cache_write is None:
-        cache_write = _coerce_int(
-            _get_attr_or_key(usage, "cache_creation_input_tokens")
-        )
-    return cached or 0, cache_write or 0
+    if reasoning is None:
+        reasoning = _coerce_int(_get_attr_or_key(usage, "reasoning_tokens"))
+    return cached or 0, reasoning or 0
 
 
 def generate_tools_for_agent(agent_info):
@@ -836,24 +881,19 @@ class AgentContext:
         self.n_tool_calls = 0
         self.initial_input_tokens = 0
         self.total_input_tokens = 0
-        self.total_input_tokens_processed = 0
         self.cached_input_tokens = 0
-        self.cache_write_input_tokens = 0
-        self._last_input_context_tokens = 0
-        self._last_provider_input_context_tokens = 0
         self.total_output_tokens = 0
+        self.reasoning_tokens = 0
         self.llm_call_seconds = 0.0
         self.successful_llm_call_seconds = 0.0
         self.tool_execution_seconds = 0.0
         self.retry_wait_seconds = 0.0
-        self.time_to_first_token_seconds = None
         self.llm_call_costs = []
         self.local_llm_runtime_metrics = []
         self.tool_executions = []
 
     def initialize_agent(self, prompt):
         self.history = generate_prompt_for_agent(prompt, self.agent)
-        self.initial_input_tokens = count_message_tokens(self.agent, self.history)
 
         logger.debug(f"Agent inintialized with: \n{get_summary_text(self.history)}")
 
@@ -865,25 +905,10 @@ class AgentContext:
 
         response_format = getattr(model_info, "response_format", "text")
 
-        try:
-            input_tokens = count_message_tokens(self.agent, history)
-        except Exception:
-            # Provider integrations implement this for real LlmAgent objects;
-            # custom clients may expose no tokenizer.
-            input_tokens = self.initial_input_tokens
-        logical_input_delta = max(
-            0, input_tokens - self._last_input_context_tokens
-        )
-        self.total_input_tokens += logical_input_delta
-        self._last_input_context_tokens = max(
-            self._last_input_context_tokens, input_tokens
-        )
-
         n_retries = 5
         wait_time_s = 60
         last_exception = None
         for idx in range(n_retries):
-            self.total_input_tokens_processed += input_tokens
             try:
                 llm_call_started = time.perf_counter()
                 response = self.agent.client.call(
@@ -895,34 +920,54 @@ class AgentContext:
                 call_seconds = time.perf_counter() - llm_call_started
                 self.llm_call_seconds += call_seconds
                 self.successful_llm_call_seconds += call_seconds
+                usage = _get_attr_or_key(response, "usage")
                 usage_input_tokens = _coerce_int(
-                    _get_attr_or_key(getattr(response, "usage", None), "prompt_tokens")
-                    or _get_attr_or_key(
-                        getattr(response, "usage", None), "input_tokens"
-                    )
-                    or getattr(response, "prompt_eval_count", None)
+                    _get_attr_or_key(usage, "prompt_tokens")
                 )
-                if usage_input_tokens is not None:
-                    self.total_input_tokens_processed += (
-                        usage_input_tokens - input_tokens
+                if usage_input_tokens is None:
+                    usage_input_tokens = _coerce_int(
+                        _get_attr_or_key(usage, "input_tokens")
                     )
-                    provider_logical_delta = max(
-                        0,
-                        usage_input_tokens
-                        - self._last_provider_input_context_tokens,
+                if usage_input_tokens is None:
+                    usage_input_tokens = _coerce_int(
+                        _get_attr_or_key(response, "prompt_eval_count")
                     )
-                    self.total_input_tokens += (
-                        provider_logical_delta - logical_input_delta
+                usage_output_tokens = _coerce_int(
+                    _get_attr_or_key(usage, "completion_tokens")
+                )
+                if usage_output_tokens is None:
+                    usage_output_tokens = _coerce_int(
+                        _get_attr_or_key(usage, "output_tokens")
                     )
-                    self._last_provider_input_context_tokens = max(
-                        self._last_provider_input_context_tokens,
-                        usage_input_tokens,
+                if usage_output_tokens is None:
+                    usage_output_tokens = _coerce_int(
+                        _get_attr_or_key(response, "eval_count")
                     )
-                usage = getattr(response, "usage", None)
-                cached_tokens, cache_write_tokens = _extract_cache_input_tokens(usage)
+                if usage_input_tokens is None:
+                    try:
+                        usage_input_tokens = count_message_tokens(
+                            self.agent, history
+                        )
+                    except Exception:
+                        # Custom clients may expose neither usage information
+                        # nor a compatible tokenizer.
+                        usage_input_tokens = self.initial_input_tokens
+                if usage_output_tokens is None:
+                    try:
+                        usage_output_tokens = count_message_tokens(
+                            self.agent, response
+                        )
+                    except Exception:
+                        usage_output_tokens = 0
+
+                self.total_input_tokens += usage_input_tokens
+                self.total_output_tokens += usage_output_tokens
+                cached_tokens, reasoning_tokens = _extract_usage_details(usage)
                 self.cached_input_tokens += cached_tokens
-                self.cache_write_input_tokens += cache_write_tokens
-                self.record_llm_call_cost(response, input_tokens, call_seconds)
+                self.reasoning_tokens += reasoning_tokens
+                self.record_llm_call_cost(
+                    response, usage_input_tokens, call_seconds
+                )
                 self.record_local_llm_runtime_metrics(response)
                 return response
 
@@ -963,13 +1008,13 @@ class AgentContext:
         if provider != "openrouter":
             return
 
-        usage = getattr(response, "usage", None)
+        usage = _get_attr_or_key(response, "usage")
         usage_input_tokens = _coerce_int(_get_attr_or_key(usage, "prompt_tokens"))
         usage_output_tokens = _coerce_int(
             _get_attr_or_key(usage, "completion_tokens")
         )
         usage_cost = _coerce_float(_get_attr_or_key(usage, "cost"))
-        cached_tokens, cache_write_tokens = _extract_cache_input_tokens(usage)
+        cached_tokens, reasoning_tokens = _extract_usage_details(usage)
         output_tokens = usage_output_tokens
         if output_tokens is None:
             try:
@@ -985,8 +1030,12 @@ class AgentContext:
                     "model",
                     getattr(getattr(self.agent, "model_info", None), "model", ""),
                 ),
-                input_tokens=usage_input_tokens or input_tokens,
-                output_tokens=output_tokens or 0,
+                input_tokens=(
+                    usage_input_tokens
+                    if usage_input_tokens is not None
+                    else input_tokens
+                ),
+                output_tokens=output_tokens if output_tokens is not None else 0,
                 request_cost_usd=usage_cost,
                 pricing_source="openrouter_response_usage"
                 if usage_cost is not None
@@ -995,7 +1044,7 @@ class AgentContext:
                 billed_input_tokens=usage_input_tokens,
                 billed_output_tokens=usage_output_tokens,
                 cached_input_tokens=cached_tokens,
-                cache_write_input_tokens=cache_write_tokens,
+                reasoning_tokens=reasoning_tokens,
                 observed_call_seconds=call_seconds,
                 output_tokens_per_second=(
                     round(output_tokens / call_seconds, 6)
@@ -1020,8 +1069,6 @@ class AgentContext:
         executed_tool_calls = []
         logger.debug(f"Handling response: {response}")
         for message in iterate_messages(self.agent, response):
-            output_tokens = count_message_tokens(self.agent, message)
-            self.total_output_tokens += output_tokens
             message_text = normalize_message(self.agent, message).text
             if message_text is not None:
                 logger.debug(f"Processing message ({type(message)}: {message_text}")

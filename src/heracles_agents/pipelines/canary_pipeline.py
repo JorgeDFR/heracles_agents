@@ -17,12 +17,13 @@ from heracles_agents.llm_interface import (
     LlmAgent,
     QuestionAnalysis,
     make_cost_metrics,
-    make_input_token_metrics,
+    make_usage_token_metrics,
     make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
 from heracles_agents.pipelines.local_metrics import (
     make_local_resource_metrics,
+    make_question_local_resource_metrics,
     prepare_local_resource_monitor,
     start_local_resource_measurement,
 )
@@ -66,6 +67,7 @@ def canary_pipeline(exp):
 
     for question in exp.questions:
         question_started = perf_counter()
+        question_resource_started = local_measurement.timestamp()
         contexts = []
         parsing_validation_seconds = 0.0
         answer = None
@@ -100,7 +102,7 @@ def canary_pipeline(exp):
             analysis = QuestionAnalysis(
                 correct=correct,
                 valid_answer_format=valid_format,
-                **make_input_token_metrics(contexts),
+                **make_usage_token_metrics(contexts),
                 output_tokens=cxt.total_output_tokens,
                 n_tool_calls=cxt.n_tool_calls,
                 latency=make_latency_metrics(
@@ -127,7 +129,7 @@ def canary_pipeline(exp):
             analysis = QuestionAnalysis(
                 correct=False,
                 valid_answer_format=False,
-                **make_input_token_metrics(contexts),
+                **make_usage_token_metrics(contexts),
                 output_tokens=0,
                 n_tool_calls=0,
                 latency=make_latency_metrics(
@@ -138,6 +140,9 @@ def canary_pipeline(exp):
                 cost=make_cost_metrics(contexts),
             )
 
+        analysis.local_resources = make_question_local_resource_metrics(
+            local_measurement, question_resource_started, local_measurement.timestamp()
+        )
         all_contexts.extend(contexts)
         aq = AnalyzedQuestion(
             question=question,

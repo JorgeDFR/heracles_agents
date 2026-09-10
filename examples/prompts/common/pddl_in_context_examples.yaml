@@ -1,37 +1,41 @@
-in_context_examples:
-  # direct-symbol + visited-place
-  - user: |
-      Instruction: Head to place 100.
-    assistant: <answer>(visited-place P100)</answer>
-  # visited-object
-  - user: |
-      Instruction: Move over to the trash.
-    assistant: <answer>(visited-object O15)</answer>
-  # visited-room
-  - user: |
-      Instruction: Go to room 1.
-    assistant: <answer>(visited-room R1)</answer>
-  # safe
-  - user: |
-      Instruction: Inspect the trash.
-    assistant: <answer>(safe O15)</answer>
-  # holding
-  - user: |
-      Instruction: Pick up the box
-    assistant: <answer>(holding O120)</answer>
-  # object-in-place
-  - user: |
-      Instruction: Move the box to mesh place 11.
-    assistant: <answer>(object-in-place O120 P11)</answer>
-  # Conjunction + holding + at-object
-  - user: |
-      Instruction: First pick up the box and then head over to the trash.
-    assistant: <answer>(and (holding O120) (at-object O15))</answer>
-  # Disjunction
-  - user: |
-      Instruction: Move to one of the poles on the sidewalk.
-    assistant: <answer>(or (visited-object O155) (visited-object O160) (visited-object O185))</answer>
-  # Disjunction
-  - user: |
-      Instruction: Go pick up one of the poles on the sidewalk.
-    assistant: <answer>(or (holding O155) (holding O160) (holding O185))</answer>
+in_context_examples: |
+  <PDDL Examples>
+    Instruction: Pass through mesh place P100, then continue onward.
+    Answer: <answer>(visited-place P100)</answer>
+
+    Instruction: Stop by the trash before continuing with the route.
+    Answer: <answer>(visited-object O15)</answer>
+
+    Instruction: Finish beside the trash and remain there.
+    Answer: <answer>(at-object O15)</answer>
+
+    Instruction: Make place p12 the final stop.
+    Answer: <answer>(at-place p12)</answer>
+
+    Instruction: Inspect the trash.
+    Answer: <answer>(safe O15)</answer>
+
+    Instruction: Pick up the box.
+    Answer: <answer>(holding O120)</answer>
+
+    Instruction: Move the box to mesh place P11.
+    Answer: <answer>(object-in-place O120 P11)</answer>
+
+    Instruction: Be holding the box and finish beside the trash.
+    Answer: <answer>(and (holding O120) (at-object O15))</answer>
+
+    Instruction: Make sure object O120 is not inside place p3.
+    Answer: <answer>(not (object-in-place O120 p3))</answer>
+
+    Instruction: Visit the trash, but do not finish while holding it.
+    Answer: <answer>(and (visited-object O15) (not (holding O15)))</answer>
+
+    Instruction: Move to one of the poles on the sidewalk.
+    Answer: <answer>(or (visited-object O155) (visited-object O160) (visited-object O185))</answer>
+
+    Instruction: Pass through room R2 and then continue elsewhere.
+    Answer: <answer>(visited-region R2)</answer>
+
+    Instruction: Finish in room R4.
+    Answer: <answer>(in-region R4)</answer>
+  </PDDL Examples>

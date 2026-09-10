@@ -182,6 +182,39 @@ def test_ollama_inline_models_expand_with_ollama_client_type(tmp_path):
     ] == "agentic-cypher-qa"
 
 
+def test_model_parameters_override_the_sweep_template(tmp_path):
+    raw = sweep_experiment()
+    raw["model_sweeps"]["openrouter-cypher"]["models"][0]["parameters"] = {
+        "temperature": None,
+        "seed": None,
+        "reasoning": {"mode": "enabled", "effort": "xhigh"},
+    }
+    raw["model_sweeps"]["openrouter-cypher"]["models"][0]["capabilities"] = {
+        "reasoning": "required",
+        "reasoning_efforts": ["low", "medium", "high", "xhigh"],
+        "temperature": True,
+        "seed": True,
+    }
+
+    expanded, _ = expand_model_sweeps(raw, tmp_path / "experiment.yaml")
+
+    model_info = expanded["configurations"][
+        "agentic-cypher-qa-enabled-model"
+    ]["phases"]["main"]["model_info"]
+    assert model_info == {
+        "model": "provider/enabled",
+        "temperature": None,
+        "seed": None,
+        "reasoning": {"mode": "enabled", "effort": "xhigh"},
+        "parameter_capabilities": {
+            "reasoning": "required",
+            "reasoning_efforts": ["low", "medium", "high", "xhigh"],
+            "temperature": True,
+            "seed": True,
+        },
+    }
+
+
 def enabled_model_count(model_list_path: Path) -> int:
     data = yaml.safe_load(model_list_path.read_text(encoding="utf-8"))
     return sum(
@@ -386,10 +419,15 @@ def test_sweep_run_writes_one_result_file_per_completed_configuration(
     assert result["metadata"]["llm_configurations"] == {
         "agentic-cypher-qa": {
             "phases": {
-                "main": {
-                    "provider": "openrouter",
-                    "model_identifier": "provider/model-a",
-                }
+                    "main": {
+                        "provider": "openrouter",
+                        "model_identifier": "provider/model-a",
+                        "request_parameters": {
+                            "temperature": None,
+                            "seed": None,
+                            "reasoning": None,
+                        },
+                    }
             }
         }
     }

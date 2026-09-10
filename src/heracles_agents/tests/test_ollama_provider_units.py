@@ -166,3 +166,56 @@ def test_ollama_client_normalizes_provider_errors():
         client._chat_func = Mock(side_effect=error)
         with pytest.raises(error_type):
             client.call(model_info, [], "text", [])
+
+
+def test_ollama_client_passes_explicit_keep_alive():
+    chat = Mock(return_value="response")
+    client = OllamaClientConfig.model_construct(keep_alive=-1)
+    client._chat_func = chat
+    model_info = SimpleNamespace(model="llama", temperature=0.0, seed=None)
+
+    client.call(model_info, [], "text", [])
+
+    assert chat.call_args.kwargs["keep_alive"] == -1
+
+
+@pytest.mark.parametrize(
+    ("reasoning", "expected_think"),
+    [
+        ({"mode": "enabled", "effort": "medium"}, "medium"),
+        ({"mode": "enabled", "effort": None}, True),
+        ({"mode": "disabled", "effort": None}, False),
+    ],
+)
+def test_ollama_client_normalizes_reasoning(reasoning, expected_think):
+    chat = Mock(return_value="response")
+    client = OllamaClientConfig.model_construct()
+    client._chat_func = chat
+    model_info = SimpleNamespace(
+        model="model",
+        temperature=None,
+        seed=None,
+        reasoning=reasoning,
+    )
+
+    client.call(model_info, [], "text", [])
+
+    assert chat.call_args.kwargs["think"] == expected_think
+    assert chat.call_args.kwargs["options"] == {}
+
+
+@pytest.mark.parametrize("mode", ["unsupported", "provider_default"])
+def test_ollama_client_omits_uncontrolled_reasoning(mode):
+    chat = Mock(return_value="response")
+    client = OllamaClientConfig.model_construct()
+    client._chat_func = chat
+    model_info = SimpleNamespace(
+        model="model",
+        temperature=0.2,
+        seed=123,
+        reasoning={"mode": mode, "effort": None},
+    )
+
+    client.call(model_info, [], "text", [])
+
+    assert "think" not in chat.call_args.kwargs

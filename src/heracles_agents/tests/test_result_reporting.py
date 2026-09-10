@@ -23,6 +23,21 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                         "main": {
                             "provider": "openrouter",
                             "model_identifier": "openai/gpt-test",
+                            "request_parameters": {
+                                "temperature": 0.2,
+                                "seed": 123,
+                                "reasoning": {
+                                    "mode": "enabled",
+                                    "effort": "medium",
+                                },
+                            },
+                            "parameter_capabilities": {
+                                "reasoning": "required",
+                                "reasoning_efforts": ["low", "medium", "high"],
+                                "temperature": True,
+                                "seed": True,
+                            },
+                            "require_parameters": True,
                         }
                     }
                 }
@@ -33,9 +48,21 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                 "local_resources": {
                     "measurement_scope": "ollama_container",
                     "ollama_container_name": "ollama",
-                    "sample_interval_seconds": 0.025,
+                    "sample_interval_seconds": 0.1,
                     "baseline_seconds": 5,
                     "baseline_adjusted": True,
+                    "warmup": {
+                        "enabled": True,
+                        "resident_verified": True,
+                        "requests": [
+                            {
+                                "kind": "cold_start",
+                                "succeeded": True,
+                                "load_duration_seconds": 3.5,
+                                "total_duration_seconds": 4.0,
+                            }
+                        ],
+                    },
                     "telemetry": {
                         "gpu_effective_interval_seconds_avg": 0.026,
                         "docker_effective_interval_seconds_avg": 1.0,
@@ -45,17 +72,13 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                         "container_cpu_percent_peak": 320.0,
                     },
                     "ram": {
-                        "container_ram_bytes_peak": 1048576,
+                        "container_ram_cgroup_working_set_bytes_peak": 1048576,
                     },
                     "gpu": {
                         "gpu_memory_used_mib_adjusted_peak": 1024,
-                        "gpu_utilization_percent_adjusted_avg": 75,
+                        "gpu_utilization_percent_raw_avg": 75,
                         "gpu_power_w_adjusted_avg": 100,
                         "gpu_energy_wh_adjusted": 0.01,
-                    },
-                    "ollama": {
-                        "output_tokens_per_second": 20,
-                        "load_duration_seconds": 1.5,
                     },
                     "warnings": [
                         "GPU metrics are baseline-adjusted.",
@@ -100,7 +123,13 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                                 "neo4j_query_seconds": 0.2,
                                 "parsing_validation_seconds": 0.3,
                                 "retry_wait_seconds": 0.4,
-                                "time_to_first_token_seconds": None,
+                                "ollama_total_duration_seconds": 1.4,
+                                "load_duration_seconds": 0.1,
+                                "prompt_eval_duration_seconds": 0.3,
+                                "generation_duration_seconds": 1.0,
+                                "client_overhead_seconds": 0.1,
+                                "output_tokens_per_second": 4.0,
+                                "throughput_source": "ollama_eval_duration",
                             },
                             "cost": {
                                 "total_cost_usd": 0.001,
@@ -119,17 +148,13 @@ def sample_result_data(*, answer="<answer>2</answer>"):
                                     "container_cpu_percent_peak": 320.0,
                                 },
                                 "ram": {
-                                    "container_ram_bytes_peak": 1048576,
+                                    "container_ram_cgroup_working_set_bytes_peak": 1048576,
                                 },
                                 "gpu": {
                                     "gpu_memory_used_mib_adjusted_peak": 1024,
-                                    "gpu_utilization_percent_adjusted_avg": 75,
+                                    "gpu_utilization_percent_raw_avg": 75,
                                     "gpu_power_w_adjusted_avg": 100,
                                     "gpu_energy_wh_adjusted": 0.01,
-                                },
-                                "ollama": {
-                                    "output_tokens_per_second": 20,
-                                    "load_duration_seconds": 1.5,
                                 },
                                 "warnings": [
                                     "GPU metrics are baseline-adjusted.",
@@ -201,9 +226,21 @@ def test_load_result_file_normalizes_experiment_yaml_shape(tmp_path):
     assert configuration.configuration_name == "canary"
     assert configuration.provider_models[0].provider == "openrouter"
     assert configuration.provider_models[0].model_identifier == "openai/gpt-test"
-    assert configuration.local_resources["ollama"]["load_duration_seconds"] == 1.5
+    assert configuration.provider_models[0].request_parameters == {
+        "temperature": 0.2,
+        "seed": 123,
+        "reasoning": {"mode": "enabled", "effort": "medium"},
+    }
+    assert configuration.provider_models[0].parameter_capabilities == {
+        "reasoning": "required",
+        "reasoning_efforts": ["low", "medium", "high"],
+        "temperature": True,
+        "seed": True,
+    }
+    assert configuration.provider_models[0].require_parameters is True
     assert configuration.questions[0].name == "Arithmetic <One>"
     assert configuration.questions[0].latency["end_to_end_seconds"] == 2.0
+    assert configuration.questions[0].latency["load_duration_seconds"] == 0.1
     assert configuration.questions[0].cost["total_cost_usd"] == 0.001
     assert configuration.questions[0].n_sequences == 1
     assert configuration.questions[0].final_answer_match is True
@@ -250,6 +287,8 @@ def test_summarize_configuration_counts_core_metrics_and_optional_metrics(tmp_pa
     assert summary.end_to_end_latency_p50 == 2.0
     assert summary.end_to_end_latency_p95 == 2.0
     assert summary.llm_latency_total == 1.5
+    assert summary.load_duration_total == 0.1
+    assert summary.output_tokens_per_second == 4.0
     assert summary.tool_latency_total == 0.1
     assert summary.neo4j_latency_total == 0.2
     assert summary.validation_latency_total == 0.3
@@ -304,11 +343,12 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
 
     render_html_report([source], output_path)
     html = output_path.read_text(encoding="utf-8")
+    overview_summary = _html_payload([source])["overview"][0]["summary"]
 
     assert "Heracles Experiment Results" in html
     assert 'label: "Average End-to-End Latency"' in html
     assert 'label: "Cost per Success"' in html
-    assert "Latency (s)" in html
+    assert "<summary>Latency</summary>" in html
     assert 'label: "End-to-End Latency"' in html
     assert 'label: "End-to-End Latency (s)"' not in html
     assert "function seconds(value)" in html
@@ -327,7 +367,26 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert 'label: "GPU Avg"' in html
     assert 'label: "VRAM Peak"' in html
     assert 'label: "Throughput"' in html
-    assert 'label: "Load Time"' in html
+    assert 'label: "Throughput", group: "latency"' in html
+    assert 'label: "Throughput", group: "tokens"' not in html
+    assert 'label: "Input Tokens"' in html
+    assert 'label: "Cached Input Tokens"' in html
+    assert 'label: "Output Tokens"' in html
+    assert 'label: "Reasoning Tokens"' in html
+    assert 'label: "Reasoning Mode"' in html
+    assert 'label: "Reasoning Effort"' in html
+    assert 'label: "Temperature"' in html
+    assert 'label: "Seed"' in html
+    assert 'label: "Parameters Required"' in html
+    assert "New Input Tokens" not in html
+    assert "Processed Input Tokens" not in html
+    assert "Cache Write Tokens" not in html
+    assert 'label: "Model Load Duration", group: "latency"' not in html
+    assert 'label: "Cold-start Load Duration", group: "latency"' in html
+    assert 'label: "Measured Load Duration", group: "latency"' in html
+    assert 'label: "Load Time", group: "local_resources"' not in html
+    assert overview_summary["cold_start_load_duration_seconds"] == 3.5
+    assert overview_summary["warmup_resident_verified"] is True
     assert 'label: "Docker Sample"' not in html
     assert 'label: "GPU Sample"' not in html
     assert "tok/s" in html
@@ -342,6 +401,12 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert 'class="validation-detail-group"' in html
     assert 'class="validation-detail-group-body"' in html
     assert '<article class="message-card">' in html
+    assert (
+        'const bodyHtml = isToolCall\n'
+        '        ? `${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}${contentHtml}`\n'
+        '        : `${contentHtml}${reasoningHtml}${toolArgsHtml}${toolCallsHtml}${metadataHtml}`;'
+        in html
+    )
     assert "Raw Response" not in html
     assert "Expand all" not in html
     assert "Collapse all" not in html
@@ -350,6 +415,10 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert "Cypher Validation Issues" in html
     assert "Parsed Response" not in html
     assert "openrouter" in html
+    assert "Reasoning Support" in html
+    assert "Supported Efforts" in html
+    assert "Temperature Supported" in html
+    assert "Seed Supported" in html
     assert '"provider": "openrouter"' in html
     assert '"providers": ["openrouter"]' in html
     assert html.index(">Provider Models</button>") < html.index(">Overview</button>")

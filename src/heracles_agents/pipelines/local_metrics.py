@@ -19,7 +19,10 @@ from heracles_agents.local_metrics.monitor import (
     LocalResourceMonitor,
     config_from_mapping,
 )
-from heracles_agents.local_metrics.ollama_runtime import summarize_ollama_metrics
+from heracles_agents.local_metrics.ollama_runtime import (
+    extract_ollama_response_metrics,
+    list_loaded_models,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +66,7 @@ def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
                     "model": model,
                     "messages": [{"role": "user", "content": config.warmup_prompt}],
                     "stream": False,
+                    "keep_alive": config.warmup_keep_alive,
                     "options": {"temperature": 0, "num_predict": 8},
                 }
             ).encode("utf-8")
@@ -77,13 +81,17 @@ def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
                 with urllib.request.urlopen(
                     request, timeout=config.warmup_timeout_seconds
                 ) as response:
-                    response.read()
+                    response_data = json.loads(response.read().decode("utf-8"))
                 records.append(
                     {
                         "model": model,
                         "request": attempt,
+                        "kind": "cold_start"
+                        if attempt == 1 and config.unload_models_before_baseline
+                        else "warmup",
                         "succeeded": True,
                         "elapsed_seconds": round(time.perf_counter() - started, 6),
+                        **extract_ollama_response_metrics(response_data),
                     }
                 )
             except Exception as ex:
@@ -98,7 +106,38 @@ def _warm_up_ollama(exp, monitor: LocalResourceMonitor) -> None:
                         "error": warning,
                     }
                 )
-    monitor.warmup = {"enabled": True, "requests": records}
+    resident_models = []
+    resident_verified = None
+    if config.warmup_verify_resident:
+        try:
+            resident_models = [
+                str(item.get("name") or item.get("model"))
+                for item in list_loaded_models(config.ollama_host)
+                if item.get("name") or item.get("model")
+            ]
+            resident_verified = all(
+                any(
+                    loaded == model
+                    or loaded.removesuffix(":latest") == model.removesuffix(":latest")
+                    for loaded in resident_models
+                )
+                for model in models
+            )
+            if not resident_verified:
+                monitor.warnings.append(
+                    "Ollama warmup completed, but not every model was resident."
+                )
+        except Exception as ex:
+            monitor.warnings.append(
+                f"Unable to verify Ollama model residency after warmup: {ex}"
+            )
+    monitor.warmup = {
+        "enabled": True,
+        "keep_alive": config.warmup_keep_alive,
+        "resident_verified": resident_verified,
+        "resident_models": resident_models,
+        "requests": records,
+    }
 
 
 def start_local_resource_measurement(
@@ -113,14 +152,31 @@ def make_local_resource_metrics(
 ) -> LocalResourceMetrics | None:
     if not measurement.config.enabled:
         return None
+    summary = measurement.stop()
     ollama_metrics = [
         metric
         for context in contexts
         for metric in getattr(context, "local_llm_runtime_metrics", [])
     ]
-    summary = measurement.stop()
-    summary["ollama"] = summarize_ollama_metrics(ollama_metrics)
     _write_debug_samples(measurement, ollama_metrics, summary)
+    return LocalResourceMetrics(**summary)
+
+
+def make_question_local_resource_metrics(
+    measurement: LocalResourceMeasurement,
+    started_at: float,
+    stopped_at: float,
+) -> LocalResourceMetrics | None:
+    """Return CPU/RAM/GPU telemetry scoped to one question."""
+
+    if not measurement.config.enabled:
+        return None
+    summary = measurement.summary_between(started_at, stopped_at)
+    telemetry = summary.get("telemetry") or {}
+    if not telemetry.get("docker_sample_count") and not telemetry.get(
+        "gpu_sample_count"
+    ):
+        return None
     return LocalResourceMetrics(**summary)
 
 

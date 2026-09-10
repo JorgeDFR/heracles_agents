@@ -194,7 +194,8 @@ def test_openrouter_client_payload_and_error_mapping():
         "temperature": 0.1,
         "x_open_router_metadata": "enabled",
         "seed": 123,
-        "reasoning": {"effort": "medium"},
+        "reasoning": {"enabled": True, "effort": "medium"},
+        "provider": {"require_parameters": True},
     }
 
     for error, error_type in [
@@ -225,6 +226,36 @@ def test_openrouter_client_payload_and_error_mapping():
     client._client = SimpleNamespace(chat=SimpleNamespace(send=Mock(return_value="ok")))
     assert client.call(model_info, [], "text", []) == "ok"
     client._client.chat.send.assert_called_once()
+
+
+def test_openrouter_client_normalizes_optional_request_parameters():
+    client = OpenRouterClientConfig.model_construct(require_parameters=False)
+
+    disabled = SimpleNamespace(
+        model="model",
+        temperature=None,
+        seed=None,
+        reasoning={"mode": "disabled", "effort": None},
+    )
+    assert client._build_payload(disabled, [], []) == {
+        "model": "model",
+        "messages": [],
+        "tools": [],
+        "x_open_router_metadata": "enabled",
+        "reasoning": {"effort": "none"},
+    }
+
+    unsupported = SimpleNamespace(
+        model="model",
+        temperature=None,
+        seed=None,
+        reasoning={"mode": "unsupported", "effort": None},
+    )
+    payload = client._build_payload(unsupported, [], [])
+    assert "reasoning" not in payload
+    assert "temperature" not in payload
+    assert "seed" not in payload
+    assert "provider" not in payload
 
 
 def test_openrouter_client_fetches_model_pricing(monkeypatch):

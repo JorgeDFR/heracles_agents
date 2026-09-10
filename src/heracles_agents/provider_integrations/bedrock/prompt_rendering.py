@@ -46,8 +46,11 @@ def render_bedrock_prompt(prompt, novel_instruction=None):
             rendered.append(_text_message("user", value))
 
     if prompt.in_context_examples:
-        for example in prompt.in_context_examples:
-            rendered += render_bedrock_example(example)
+        if isinstance(prompt.in_context_examples, str):
+            rendered.append(_text_message("user", prompt.in_context_examples))
+        else:
+            for example in prompt.in_context_examples:
+                rendered += render_bedrock_example(example)
 
     if prompt.novel_instruction_preamble:
         rendered.append(_text_message("user", prompt.novel_instruction_preamble))

@@ -15,6 +15,7 @@ from heracles_agents.exceptions import (
     LlmBadRequestError,
     LlmUnknownError,
 )
+from heracles_agents.inference_parameters import get_reasoning_settings
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,6 @@ class OpenaiClientConfig(BaseSettings):
     def _build_payload(self, model_info,  tools, response_format, messages):
         payload = {
             "model": model_info.model,
-            "temperature": model_info.temperature,
             "text": self._build_response_format(
                 response_format
             ),
@@ -87,20 +87,22 @@ class OpenaiClientConfig(BaseSettings):
             "parallel_tool_calls": False,
         }
 
+        if getattr(model_info, "temperature", None) is not None:
+            payload["temperature"] = model_info.temperature
+
         # Optional parameters
         if getattr(model_info, "seed", None) is not None:
             payload["seed"] = model_info.seed
 
         # GPT-5 reasoning models
         if "gpt-5" in model_info.model:
-
-            payload["reasoning"] = {
-                "effort": getattr(
-                    model_info,
-                    "reasoning",
-                    "low",
-                )
-            }
+            reasoning_mode, reasoning_effort = get_reasoning_settings(model_info)
+            if reasoning_mode == "disabled":
+                payload["reasoning"] = {"effort": "none"}
+            elif reasoning_mode == "enabled":
+                payload["reasoning"] = {"effort": reasoning_effort or "medium"}
+            elif reasoning_mode is None:
+                payload["reasoning"] = {"effort": "low"}
 
         return payload
 

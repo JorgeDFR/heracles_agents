@@ -43,8 +43,11 @@ def render_openrouter_prompt(prompt, novel_instruction=None):
             rendered.append({"role": "user", "content": value})
 
     if prompt.in_context_examples:
-        for example in prompt.in_context_examples:
-            rendered += render_openrouter_example(example)
+        if isinstance(prompt.in_context_examples, str):
+            rendered.append({"role": "user", "content": prompt.in_context_examples})
+        else:
+            for example in prompt.in_context_examples:
+                rendered += render_openrouter_example(example)
 
     if prompt.novel_instruction_preamble:
         rendered.append({"role": "user", "content": prompt.novel_instruction_preamble})

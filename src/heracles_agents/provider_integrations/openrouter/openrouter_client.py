@@ -34,12 +34,14 @@ from heracles_agents.exceptions import (
     LlmBadRequestError,
     LlmUnknownError,
 )
+from heracles_agents.inference_parameters import get_reasoning_settings
 
 logger = logging.getLogger(__name__)
 
 
 class OpenRouterClientConfig(BaseSettings):
     client_type: Literal["openrouter"]
+    require_parameters: bool = True
     auth_key: SecretStr = Field(alias="HERACLES_OPENROUTER_API_KEY", exclude=True)
     _client: OpenRouter = PrivateAttr()
     _model_pricing_cache: dict = PrivateAttr(default_factory=dict)
@@ -105,17 +107,25 @@ class OpenRouterClientConfig(BaseSettings):
             "model": model_info.model,
             "messages": messages,
             "tools": tools,
-            "temperature": model_info.temperature,
             "x_open_router_metadata": "enabled",
         }
+
+        if getattr(model_info, "temperature", None) is not None:
+            payload["temperature"] = model_info.temperature
 
         if getattr(model_info, "seed", None) is not None:
             payload["seed"] = model_info.seed
 
-        if getattr(model_info, "reasoning", None) is not None:
-            payload["reasoning"] = {
-                "effort": model_info.reasoning
-            }
+        reasoning_mode, reasoning_effort = get_reasoning_settings(model_info)
+        if reasoning_mode == "enabled":
+            payload["reasoning"] = {"enabled": True}
+            if reasoning_effort is not None:
+                payload["reasoning"]["effort"] = reasoning_effort
+        elif reasoning_mode == "disabled":
+            payload["reasoning"] = {"effort": "none"}
+
+        if self.require_parameters:
+            payload["provider"] = {"require_parameters": True}
 
         return payload
 

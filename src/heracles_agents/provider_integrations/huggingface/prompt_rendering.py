@@ -48,11 +48,15 @@ def render_huggingface_prompt(prompt, novel_instruction=None):
         rendered.append({"role": "system", "content": "\n\n".join(developer_parts)})
 
     if prompt.in_context_examples:
-        logger.info(
-            f"Adding {len(prompt.in_context_examples)} in-context examples to prompt"
-        )
-        for example in prompt.in_context_examples:
-            rendered += render_huggingface_example(example)
+        if isinstance(prompt.in_context_examples, str):
+            logger.info("Adding in-context examples block to prompt")
+            rendered.append({"role": "user", "content": prompt.in_context_examples})
+        else:
+            logger.info(
+                f"Adding {len(prompt.in_context_examples)} in-context examples to prompt"
+            )
+            for example in prompt.in_context_examples:
+                rendered += render_huggingface_example(example)
 
     user_parts = []
     if prompt.novel_instruction_preamble:

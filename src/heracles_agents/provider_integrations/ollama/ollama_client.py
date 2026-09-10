@@ -16,12 +16,14 @@ from heracles_agents.exceptions import (
     LlmAuthenticationError,
     LlmUnknownError,
 )
+from heracles_agents.inference_parameters import get_reasoning_settings
 
 logger = logging.getLogger(__name__)
 
 
 class OllamaClientConfig(BaseSettings):
     client_type: Literal["ollama"]
+    keep_alive: str | int | None = None
     _chat_func: object = PrivateAttr(default=None)
 
 
@@ -46,20 +48,34 @@ class OllamaClientConfig(BaseSettings):
                 "Only `text` format is currently implemented for interfacing with Ollama"
             )
 
-        options = {
-            "temperature": model_info.temperature,
-        }
+        options = {}
+
+        if getattr(model_info, "temperature", None) is not None:
+            options["temperature"] = model_info.temperature
 
         if model_info.seed is not None:
             options["seed"] = model_info.seed
 
         try:
+            request = {
+                "model": model_info.model,
+                "messages": messages,
+                "tools": tools,
+                "options": options,
+            }
+            reasoning_mode, reasoning_effort = get_reasoning_settings(model_info)
+            if reasoning_mode == "enabled":
+                request["think"] = reasoning_effort or True
+            elif reasoning_mode == "disabled":
+                request["think"] = False
+            elif reasoning_mode is None:
+                # Preserve the behavior of legacy experiment files that do not
+                # yet contain normalized reasoning settings.
+                request["think"] = False
+            if self.keep_alive is not None:
+                request["keep_alive"] = self.keep_alive
             return self._chat_func(
-                model=model_info.model,
-                messages=messages,
-                tools=tools,
-                think=False,
-                options=options,
+                **request,
             )
 
         except TimeoutError as ex:

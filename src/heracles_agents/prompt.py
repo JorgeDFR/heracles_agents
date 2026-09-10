@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator
@@ -22,7 +22,9 @@ class Prompt(BaseModel):
     domain_description: Optional[str] = None
     tool_description: Optional[str] = None
     in_context_examples_preamble: Optional[str] = None
-    in_context_examples: Optional[List[InContextExample]] = None
+    # A text block is rendered as one user message. The structured list keeps
+    # the legacy alternating user/assistant demonstration format.
+    in_context_examples: Optional[Union[str, List[InContextExample]]] = None
     novel_instruction_preamble: Optional[str] = None
     novel_instruction: Optional[str] = None
     novel_instruction_template: Optional[str] = None
