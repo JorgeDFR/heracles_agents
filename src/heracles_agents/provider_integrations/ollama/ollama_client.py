@@ -102,10 +102,10 @@ class OllamaClientConfig(BaseSettings):
             raise LlmRateLimitError(str(ex)) from ex
         if ex.status_code == 408:
             raise LlmTimeoutError(str(ex)) from ex
-        if ex.status_code in {500, 502, 503, 504}:
+        if ex.status_code in {502, 503, 504}:
             raise LlmServiceUnavailableError(str(ex)) from ex
         if ex.status_code in {401, 403}:
             raise LlmAuthenticationError(str(ex)) from ex
-        if ex.status_code in {400, 404, 413, 422}:
+        if ex.status_code in {400, 404, 413, 422, 500}:
             raise LlmBadRequestError(str(ex)) from ex
         raise LlmUnknownError(str(ex)) from ex

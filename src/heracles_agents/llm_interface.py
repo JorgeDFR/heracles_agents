@@ -1051,6 +1051,8 @@ class AgentContext:
             ) as ex:
                 self.llm_call_seconds += time.perf_counter() - llm_call_started
                 last_exception = ex
+                if idx == n_retries - 1:
+                    break
                 logging.warning(
                     f"{type(ex).__name__}: {ex}\n"
                     f"Retrying in {wait_time_s}s "
