@@ -193,6 +193,13 @@ def build_llm_metadata(
                     "reasoning": reasoning,
                 },
             }
+            openrouter_provider = getattr(
+                agent.model_info, "openrouter_provider", None
+            )
+            if openrouter_provider is not None:
+                phase_metadata["request_parameters"]["openrouter_provider"] = (
+                    openrouter_provider
+                )
             parameter_capabilities = getattr(
                 agent.model_info, "parameter_capabilities", {}
             )

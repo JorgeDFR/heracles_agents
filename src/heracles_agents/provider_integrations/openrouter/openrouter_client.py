@@ -124,8 +124,16 @@ class OpenRouterClientConfig(BaseSettings):
         elif reasoning_mode == "disabled":
             payload["reasoning"] = {"effort": "none"}
 
+        provider = {}
+        openrouter_provider = getattr(model_info, "openrouter_provider", None)
+        if openrouter_provider is not None:
+            provider.update(
+                {"only": [openrouter_provider], "allow_fallbacks": False}
+            )
         if self.require_parameters:
-            payload["provider"] = {"require_parameters": True}
+            provider["require_parameters"] = True
+        if provider:
+            payload["provider"] = provider
 
         return payload
 

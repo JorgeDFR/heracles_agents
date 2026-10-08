@@ -268,6 +268,37 @@ def test_openrouter_client_normalizes_optional_request_parameters():
     assert "provider" not in payload
 
 
+@pytest.mark.parametrize("require_parameters", [True, False])
+def test_openrouter_client_pins_provider_per_model(require_parameters):
+    from heracles_agents.llm_agent import ModelInfo
+
+    client = OpenRouterClientConfig.model_construct(require_parameters=require_parameters)
+    client._client = SimpleNamespace(chat=SimpleNamespace(send=Mock(return_value="ok")))
+    for slug in ("deepinfra", "deepinfra/turbo"):
+        model_info = ModelInfo(model="model", openrouter_provider=slug)
+        assert client.call(model_info, [], "text", []) == "ok"
+        provider = client._client.chat.send.call_args.kwargs["provider"]
+        assert provider == {
+            "only": [slug],
+            "allow_fallbacks": False,
+            **({"require_parameters": True} if require_parameters else {}),
+        }
+
+    client.call(ModelInfo(model="model"), [], "text", [])
+    payload = client._client.chat.send.call_args.kwargs
+    assert payload.get("provider", {}) == (
+        {"require_parameters": True} if require_parameters else {}
+    )
+
+
+@pytest.mark.parametrize("slug", ["", "  ", True, 1, [], {}])
+def test_openrouter_model_info_rejects_invalid_provider(slug):
+    from heracles_agents.llm_agent import ModelInfo
+
+    with pytest.raises(ValueError):
+        ModelInfo(model="model", openrouter_provider=slug)
+
+
 def test_openrouter_client_fetches_model_pricing(monkeypatch):
     client = OpenRouterClientConfig.model_construct()
     client.auth_key = SimpleNamespace(get_secret_value=lambda: "secret")

@@ -188,6 +188,7 @@ def test_model_parameters_override_the_sweep_template(tmp_path):
         "temperature": None,
         "seed": None,
         "reasoning": {"mode": "enabled", "effort": "xhigh"},
+        "openrouter_provider": "deepinfra/turbo",
     }
     raw["model_sweeps"]["openrouter-cypher"]["models"][0]["capabilities"] = {
         "reasoning": "required",
@@ -206,6 +207,7 @@ def test_model_parameters_override_the_sweep_template(tmp_path):
         "temperature": None,
         "seed": None,
         "reasoning": {"mode": "enabled", "effort": "xhigh"},
+        "openrouter_provider": "deepinfra/turbo",
         "parameter_capabilities": {
             "reasoning": "required",
             "reasoning_efforts": ["low", "medium", "high", "xhigh"],
@@ -457,3 +459,25 @@ def test_experiment_runner_debug_configures_local_metrics_sample_output():
         experiment_config.local_metrics["samples_output_path"]
         == "output/ollama/canary_canary-local-metrics_local_metrics_samples.yaml"
     )
+
+
+def test_llm_metadata_records_openrouter_provider():
+    from heracles_agents.llm_agent import ModelInfo
+
+    runner_path = project_root() / "examples/experiment_runner.py"
+    spec = importlib.util.spec_from_file_location("experiment_runner", runner_path)
+    experiment_runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(experiment_runner)
+    experiment = SimpleNamespace(configurations={
+        "pinned": SimpleNamespace(phases={
+            "main": SimpleNamespace(
+                client=SimpleNamespace(client_type="openrouter", require_parameters=True),
+                model_info=ModelInfo(model="provider/model", openrouter_provider="deepinfra"),
+            )
+        })
+    })
+
+    metadata = experiment_runner.build_llm_metadata(experiment, {"pinned"})
+    phase = metadata["pinned"]["phases"]["main"]
+    assert phase["request_parameters"]["openrouter_provider"] == "deepinfra"
+    assert phase["require_parameters"] is True

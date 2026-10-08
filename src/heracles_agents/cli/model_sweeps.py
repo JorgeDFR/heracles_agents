@@ -133,7 +133,12 @@ def expand_model_sweeps(
                         f"Model '{alias}' in sweep '{sweep_name}' field "
                         "'parameters' must be a mapping."
                     )
-                for parameter_name in ("temperature", "seed", "reasoning"):
+                for parameter_name in (
+                    "temperature",
+                    "seed",
+                    "reasoning",
+                    "openrouter_provider",
+                ):
                     if parameter_name in parameters:
                         model_info[parameter_name] = copy.deepcopy(
                             parameters[parameter_name]

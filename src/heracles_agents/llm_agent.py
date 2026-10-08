@@ -27,8 +27,20 @@ class ModelInfo(BaseModel):
     temperature: Optional[float] = 1.0
     seed: Optional[int] = None
     reasoning: Optional[ReasoningSettings] = None
+    openrouter_provider: Optional[str] = None
     parameter_capabilities: dict[str, Any] = Field(default_factory=dict)
     response_format: str = "text"
+
+    @field_validator("openrouter_provider")
+    @classmethod
+    def validate_openrouter_provider(cls, value):
+        if value is not None:
+            if not value.strip():
+                raise ValueError(
+                    "openrouter_provider must be a non-empty string or null"
+                )
+            return value.strip()
+        return None
 
     @field_validator("reasoning", mode="before")
     @classmethod

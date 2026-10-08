@@ -665,6 +665,20 @@ def test_html_payload_keeps_provider_filter_data_separate_from_provider_model(
     )
 
 
+def test_report_preserves_openrouter_provider(tmp_path):
+    data = sample_result_data()
+    phase = data["metadata"]["llm_configurations"]["canary"]["phases"]["main"]
+    parameters = phase["request_parameters"]
+    parameters["openrouter_provider"] = "deepinfra/turbo"
+    source = load_result_file(write_yaml(tmp_path, "results.yaml", data))
+
+    row = _html_payload([source])["provider_models"][0]
+    assert row["openrouter_provider"] == "deepinfra/turbo"
+    report_path = tmp_path / "report.html"
+    render_html_report([source], report_path)
+    assert "OpenRouter Provider" in report_path.read_text(encoding="utf-8")
+
+
 def test_overlap_metadata_and_subset_summaries_survive_report_loading(tmp_path):
     from copy import deepcopy
 

@@ -1180,6 +1180,9 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "phase": ref.phase,
                         "provider": ref.provider,
                         "model_identifier": ref.model_identifier,
+                        "openrouter_provider": request_parameters.get(
+                            "openrouter_provider"
+                        ),
                         "temperature": request_parameters.get("temperature"),
                         "seed": request_parameters.get("seed"),
                         "reasoning_mode": reasoning.get("mode"),
@@ -2139,6 +2142,7 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "phase", label: "Phase" },
         { key: "provider", label: "Provider" },
         { key: "model_identifier", label: "Model Identifier" },
+        { key: "openrouter_provider", label: "OpenRouter Provider" },
         { key: "reasoning_support", label: "Reasoning Support" },
         { key: "reasoning_mode", label: "Reasoning Mode" },
         { key: "reasoning_effort", label: "Reasoning Effort" },
