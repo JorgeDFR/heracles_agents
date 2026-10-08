@@ -66,6 +66,8 @@ class EvalQuestion(BaseModel):
     solution: str
     uid: str | int
     tags: Optional[list[str]] = None
+    question_type: Optional[str] = None
+    overlap_class: Optional[Literal["direct", "related", "absent"]] = None
     correctness_comparator: ComparisonType = Field(discriminator="comparison_type")
 
 

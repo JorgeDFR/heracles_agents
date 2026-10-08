@@ -83,3 +83,14 @@ def test_render_table_rejects_unknown_comparator(monkeypatch):
 
     with pytest.raises(Exception, match="Unknown comparison type UNKNOWN"):
         question_validator.render_table([question], validate=True)
+
+
+def test_question_overlap_metadata_is_preserved_and_validated():
+    question = make_question(question_type="qa_object_total", overlap_class="direct")
+    serialized = question.model_dump(mode="json")
+    assert serialized["question_type"] == "qa_object_total"
+    assert serialized["overlap_class"] == "direct"
+    assert EvalQuestion.model_validate(serialized).overlap_class == "direct"
+    assert make_question().overlap_class is None
+    with pytest.raises(ValueError, match="overlap_class"):
+        make_question(overlap_class="unknown")

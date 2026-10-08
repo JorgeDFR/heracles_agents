@@ -148,6 +148,9 @@ class QuestionResult:
     n_sequences: int = 0
     sequences: list[dict[str, Any]] = field(default_factory=list)
     provider_model: str = ""
+    question_type: str | None = None
+    overlap_class: str | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -634,6 +637,9 @@ def _parse_questions(
                 source_path=source_path,
                 configuration_name=configuration_name,
                 name=_as_text(question_data.get("name")),
+                question_type=_as_optional_text(question_data.get("question_type")),
+                overlap_class=_as_optional_text(question_data.get("overlap_class")),
+                tags=[str(tag) for tag in (question_data.get("tags") or [])],
                 question=_as_text(question_data.get("question")),
                 solution=_as_text(question_data.get("solution")),
                 answer=_as_optional_text(analyzed_question.get("answer")),
@@ -1140,6 +1146,17 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                     "providers": providers,
                     "provider_model": provider_model_label,
                     "summary": summary,
+                    "overlap_summaries": {
+                        overlap: {
+                            "summary": asdict(summarize_configuration(subset)),
+                            "local_resources_summary": _summarize_local_resources(None, subset),
+                        }
+                        for overlap in ("direct", "related", "absent", "unclassified")
+                        if (subset := [
+                            question for question in configuration.questions
+                            if (question.overlap_class or "unclassified") == overlap
+                        ])
+                    },
                     "analysis_summary": configuration.analysis_summary,
                     "cost_summary": configuration.cost_summary,
                     "local_resources": configuration.local_resources,
@@ -1195,6 +1212,9 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "providers": providers,
                         "provider_model": question.provider_model,
                         "name": question.name,
+                        "question_type": question.question_type,
+                        "overlap_class": question.overlap_class,
+                        "tags": question.tags,
                         "question": question.question,
                         "solution": question.solution,
                         "answer": question.answer,
@@ -1748,6 +1768,15 @@ _HTML_TEMPLATE = """<!doctype html>
         <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="artifacts-tab" data-tab="artifacts-tab">Artifacts</button>
       </nav>
       <div class="metric-controls" aria-label="Metric columns" hidden>
+        <label for="overlap-class-filter">Task overlap
+          <select id="overlap-class-filter">
+            <option value="">All classes</option>
+            <option value="direct">Direct overlap</option>
+            <option value="related">Related variant / composition</option>
+            <option value="absent">Absent from training catalogs</option>
+            <option value="unclassified">Unclassified</option>
+          </select>
+        </label>
         <label><input type="radio" name="metric-group" data-group="quality" checked> Quality</label>
         <label><input type="radio" name="metric-group" data-group="tokens"> Tokens/tools</label>
         <label><input type="radio" name="metric-group" data-group="latency"> Latency</label>
@@ -1787,6 +1816,27 @@ _HTML_TEMPLATE = """<!doctype html>
     const tabButtons = [...document.querySelectorAll(".tab-button")];
     const tabPanels = [...document.querySelectorAll(".tab-panel")];
     const metricControls = document.querySelector(".metric-controls");
+    const overlapFilter = document.getElementById("overlap-class-filter");
+
+    function overlapLabel(value) {
+      return {
+        direct: "Direct overlap",
+        related: "Related variant / composition",
+        absent: "Absent from training catalogs",
+        unclassified: "Unclassified",
+      }[value] || "All classes";
+    }
+    function overviewForOverlap() {
+      if (!overlapFilter.value) return report.overview;
+      return report.overview.flatMap(row => {
+        const subset = (row.overlap_summaries || {})[overlapFilter.value];
+        return subset ? [{ ...row, ...subset, overlap_class: overlapFilter.value }] : [];
+      });
+    }
+    function questionsForOverlap() {
+      return report.questions.filter(question => !overlapFilter.value ||
+        (question.overlap_class || "unclassified") === overlapFilter.value);
+    }
 
     function text(value) {
       if (value === null || value === undefined) return "";
@@ -2051,6 +2101,7 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "configuration", label: "Configuration" },
         { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
+        { key: "overlap_class", label: "Task Overlap", render: r => escapeHtml(overlapLabel(r.overlap_class)) },
         { key: "questions", label: "Questions", group: "quality", render: r => text(r.summary.questions), sortValue: r => r.summary.questions },
         { key: "tool_executable_rate", label: "Tool Executable", group: "quality", render: r => percent((r.summary.tool_executable_rate || 0) * 100), sortValue: r => r.summary.tool_executable_rate, visible: hasRecorded(r => r.summary.tool_executable_rate) },
         { key: "cypher_solution_match_rate", label: "Cypher Solution / Grounding Match", group: "quality", render: r => percent((r.summary.cypher_solution_match_rate || 0) * 100), sortValue: r => r.summary.cypher_solution_match_rate, visible: hasRecorded(r => r.summary.cypher_solution_match_rate) },
@@ -2078,7 +2129,7 @@ _HTML_TEMPLATE = """<!doctype html>
       renderTable(
         document.getElementById("overview"),
         columns,
-        rowsForActiveMetricGroup(report.overview, "overview")
+        rowsForActiveMetricGroup(overviewForOverlap(), "overview")
       );
     }
     function renderProviderModels() {
@@ -2110,6 +2161,9 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
         { key: "name", label: "Topic" },
+        { key: "question_type", label: "Question Type", visible: hasRecorded(q => q.question_type) },
+        { key: "overlap_class", label: "Task Overlap", render: q => escapeHtml(overlapLabel(q.overlap_class || "unclassified")) },
+        { key: "tags", label: "Tags", render: q => escapeHtml((q.tags || []).join(", ")), visible: q => (q.tags || []).length > 0 },
         { key: "tool_executable", label: "Tool Executable", group: "quality", render: q => bool(q.tool_executable), visible: hasRecorded(q => q.tool_executable) },
         { key: "cypher_solution_match", label: "Cypher Solution / Grounding Match", group: "quality", render: q => bool(q.cypher_solution_match), visible: hasRecorded(q => q.cypher_solution_match) },
         { key: "final_answer_match", label: "Final Answer Match", group: "quality", render: q => bool(q.final_answer_match) },
@@ -2137,7 +2191,7 @@ _HTML_TEMPLATE = """<!doctype html>
       renderTable(
         document.getElementById("questions"),
         columns,
-        rowsForActiveMetricGroup(report.questions, "questions"),
+        rowsForActiveMetricGroup(questionsForOverlap(), "questions"),
         q => `data-question-id="${escapeHtml(q.id)}"`
       );
       const questionRows = [...document.querySelectorAll("tr[data-question-id]")];
@@ -2225,6 +2279,7 @@ _HTML_TEMPLATE = """<!doctype html>
       `).join("");
       target.innerHTML = `
         <h3>Topic: ${escapeHtml(q.name)}</h3>
+        <div class="muted">${escapeHtml(q.question_type || "")} · ${escapeHtml(overlapLabel(q.overlap_class || "unclassified"))}</div>
         <dl class="kv">
           <dt>Configuration</dt><dd>${escapeHtml(q.configuration)}</dd>
           <dt>Provider / Model</dt><dd>${escapeHtml(q.provider_model)}</dd>
@@ -2287,6 +2342,7 @@ _HTML_TEMPLATE = """<!doctype html>
     }
     tabButtons.forEach(button => button.addEventListener("click", () => selectTab(button)));
     groupInputs.forEach(input => input.addEventListener("change", render));
+    overlapFilter.addEventListener("change", render);
     render();
   </script>
 </body>

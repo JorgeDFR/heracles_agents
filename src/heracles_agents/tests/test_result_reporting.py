@@ -430,8 +430,8 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert 'class="metric-controls" aria-label="Metric columns" hidden' in html
     assert '!["overview-tab", "questions-tab"].includes(panelId)' in html
     assert "function rowsForActiveMetricGroup(rows, tableKind)" in html
-    assert 'rowsForActiveMetricGroup(report.overview, "overview")' in html
-    assert 'rowsForActiveMetricGroup(report.questions, "questions")' in html
+    assert 'rowsForActiveMetricGroup(overviewForOverlap(), "overview")' in html
+    assert 'rowsForActiveMetricGroup(questionsForOverlap(), "questions")' in html
     assert "sourceFilter" not in html
     assert "providerFilter" not in html
     assert "searchInput" not in html
@@ -663,3 +663,48 @@ def test_html_payload_keeps_provider_filter_data_separate_from_provider_model(
     assert (
         provider_rows[0]["configuration_provider_model"] == question["provider_model"]
     )
+
+
+def test_overlap_metadata_and_subset_summaries_survive_report_loading(tmp_path):
+    from copy import deepcopy
+
+    data = sample_result_data()
+    configuration = data["experiment_configurations"]["canary"]
+    base = configuration["analyzed_questions"][0]
+    records = []
+    for index, overlap in enumerate(("direct", "related", "absent", None)):
+        record = deepcopy(base)
+        record["question"]["uid"] = index
+        record["question"]["question_type"] = f"qa_example_{index}"
+        record["question"]["tags"] = ["count"]
+        if overlap:
+            record["question"]["overlap_class"] = overlap
+        record["analysis"]["final_answer_match"] = index == 0
+        record["analysis"]["correct"] = index == 0
+        records.append(record)
+    configuration["analyzed_questions"] = records
+    path = tmp_path / "results.yaml"
+    path.write_text(yaml.safe_dump(data))
+    source = load_result_file(path)
+    payload = _html_payload([source])
+    assert payload["questions"][0]["question_type"] == "qa_example_0"
+    assert payload["questions"][0]["overlap_class"] == "direct"
+    assert payload["questions"][0]["tags"] == ["count"]
+    overview = payload["overview"][0]
+    assert overview["summary"]["questions"] == 4
+    assert overview["summary"]["final_answer_match_rate"] == 0.25
+    groups = overview["overlap_summaries"]
+    assert set(groups) == {"direct", "related", "absent", "unclassified"}
+    assert all(group["summary"]["questions"] == 1 for group in groups.values())
+    assert groups["direct"]["summary"]["final_answer_match_rate"] == 1.0
+    assert groups["related"]["summary"]["final_answer_match_rate"] == 0.0
+    assert groups["absent"]["summary"]["final_answer_match_rate"] == 0.0
+    assert groups["unclassified"]["summary"]["final_answer_match_rate"] == 0.0
+    report_path = tmp_path / "report.html"
+    render_html_report([source], report_path)
+    html = report_path.read_text()
+    assert 'id="overlap-class-filter"' in html
+    assert 'label: "Question Type"' in html
+    assert 'label: "Task Overlap"' in html
+    assert 'rowsForActiveMetricGroup(overviewForOverlap(), "overview")' in html
+    assert 'rowsForActiveMetricGroup(questionsForOverlap(), "questions")' in html
