@@ -35,7 +35,6 @@ TERMINAL_QUESTION_COLUMNS = {
     "Solution": "solution",
     "Answer": "answer",
     "Tool Executable": "tool_executable",
-    "Cypher Solution / Grounding Match": "cypher_solution_match",
     "Final Answer Match": "final_answer_match",
     "Input Tokens": "input_tokens",
     "Cached Input Tokens": "cached_input_tokens",
@@ -49,7 +48,6 @@ TERMINAL_QUESTION_COLUMNS = {
 TERMINAL_SUMMARY_COLUMNS = {
     "Questions": "questions",
     "Tool Executable": "tool_executable",
-    "Cypher Solution / Grounding Match": "cypher_solution_match",
     "Final Answer Match": "final_answer_match",
     "Input Tokens": "input_tokens",
     "Cached Input Tokens": "cached_input_tokens",
@@ -82,9 +80,6 @@ class ConfigurationSummary:
     accuracy: float | None = None
     final_answer_match_count: int = 0
     final_answer_match_rate: float | None = None
-    cypher_solution_match_count: int = 0
-    cypher_solution_match_evaluated: int = 0
-    cypher_solution_match_rate: float | None = None
     tool_executable_count: int = 0
     tool_executable_evaluated: int = 0
     tool_executable_rate: float | None = None
@@ -132,11 +127,9 @@ class QuestionResult:
     valid_answer_format: bool | None
     correct: bool | None
     final_answer_match: bool | None
-    cypher_solution_match: bool | None
     tool_executable: bool | None
     generated_cypher: str | None
     cypher_tool_output: Any
-    cypher_validation_issues: list[str]
     input_tokens: int | None
     cached_input_tokens: int | None
     output_tokens: int | None
@@ -288,11 +281,6 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
     valid_answer_count = sum(1 for q in questions if q.valid_answer_format is True)
     correct_count = sum(1 for q in questions if q.correct is True)
     final_answer_match_count = sum(1 for q in questions if q.final_answer_match is True)
-    cypher_solution_values = [
-        q.cypher_solution_match
-        for q in questions
-        if q.cypher_solution_match is not None
-    ]
     tool_executable_values = [
         q.tool_executable for q in questions if q.tool_executable is not None
     ]
@@ -355,14 +343,6 @@ def summarize_configuration(questions: list[QuestionResult]) -> ConfigurationSum
         accuracy=correct_count / n_questions,
         final_answer_match_count=final_answer_match_count,
         final_answer_match_rate=final_answer_match_count / n_questions,
-        cypher_solution_match_count=sum(value is True for value in cypher_solution_values),
-        cypher_solution_match_evaluated=len(cypher_solution_values),
-        cypher_solution_match_rate=(
-            sum(value is True for value in cypher_solution_values)
-            / len(cypher_solution_values)
-            if cypher_solution_values
-            else None
-        ),
         tool_executable_count=sum(value is True for value in tool_executable_values),
         tool_executable_evaluated=len(tool_executable_values),
         tool_executable_rate=(
@@ -651,16 +631,9 @@ def _parse_questions(
                 final_answer_match=_as_optional_bool(
                     analysis.get("final_answer_match", analysis.get("correct"))
                 ),
-                cypher_solution_match=_as_optional_bool(
-                    analysis.get("cypher_solution_match")
-                ),
                 tool_executable=_as_optional_bool(analysis.get("tool_executable")),
                 generated_cypher=_as_optional_text(analysis.get("generated_cypher")),
                 cypher_tool_output=analysis.get("cypher_tool_output"),
-                cypher_validation_issues=[
-                    str(issue)
-                    for issue in (analysis.get("cypher_validation_issues") or [])
-                ],
                 input_tokens=_coerce_int(
                     analysis.get("input_tokens_processed", analysis.get("input_tokens"))
                 ),
@@ -749,7 +722,6 @@ def _terminal_question_row(question: QuestionResult) -> dict[str, Any]:
         "valid_answer_format": question.valid_answer_format,
         "correct": question.correct,
         "final_answer_match": question.final_answer_match,
-        "cypher_solution_match": question.cypher_solution_match,
         "tool_executable": question.tool_executable,
         "input_tokens": question.input_tokens,
         "cached_input_tokens": question.cached_input_tokens,
@@ -774,10 +746,6 @@ def _terminal_summary_row(summary: ConfigurationSummary) -> dict[str, Any]:
         "correct": _count_rate(summary.correct_count, summary.questions),
         "final_answer_match": _count_rate(
             summary.final_answer_match_count, summary.questions
-        ),
-        "cypher_solution_match": _count_rate(
-            summary.cypher_solution_match_count,
-            summary.cypher_solution_match_evaluated,
         ),
         "tool_executable": _count_rate(
             summary.tool_executable_count,
@@ -1225,11 +1193,8 @@ def _html_payload(sources: Sequence[ResultSource]) -> dict[str, Any]:
                         "valid_answer_format": question.valid_answer_format,
                         "correct": question.correct,
                         "final_answer_match": question.final_answer_match,
-                        "cypher_solution_match": question.cypher_solution_match,
-                        "tool_executable": question.tool_executable,
                         "generated_cypher": question.generated_cypher,
                         "cypher_tool_output": question.cypher_tool_output,
-                        "cypher_validation_issues": question.cypher_validation_issues,
                         "input_tokens": question.input_tokens,
                         "cached_input_tokens": question.cached_input_tokens,
                         "output_tokens": question.output_tokens,
@@ -2106,8 +2071,6 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "provider_model", label: "Provider / Model" },
         { key: "overlap_class", label: "Task Overlap", render: r => escapeHtml(overlapLabel(r.overlap_class)) },
         { key: "questions", label: "Questions", group: "quality", render: r => text(r.summary.questions), sortValue: r => r.summary.questions },
-        { key: "tool_executable_rate", label: "Tool Executable", group: "quality", render: r => percent((r.summary.tool_executable_rate || 0) * 100), sortValue: r => r.summary.tool_executable_rate, visible: hasRecorded(r => r.summary.tool_executable_rate) },
-        { key: "cypher_solution_match_rate", label: "Cypher Solution / Grounding Match", group: "quality", render: r => percent((r.summary.cypher_solution_match_rate || 0) * 100), sortValue: r => r.summary.cypher_solution_match_rate, visible: hasRecorded(r => r.summary.cypher_solution_match_rate) },
         { key: "final_answer_match_rate", label: "Final Answer Match", group: "quality", render: r => percent((r.summary.final_answer_match_rate || 0) * 100), sortValue: r => r.summary.final_answer_match_rate },
         { key: "input_tokens_total", label: "Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total, visible: hasValue(r => r.summary.input_tokens_total) },
         { key: "cached_input_tokens_total", label: "Cached Input Tokens", group: "tokens", render: r => text(r.summary.cached_input_tokens_total), sortValue: r => r.summary.cached_input_tokens_total },
@@ -2168,8 +2131,6 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "question_type", label: "Question Type", visible: hasRecorded(q => q.question_type) },
         { key: "overlap_class", label: "Task Overlap", render: q => escapeHtml(overlapLabel(q.overlap_class || "unclassified")) },
         { key: "tags", label: "Tags", render: q => escapeHtml((q.tags || []).join(", ")), visible: q => (q.tags || []).length > 0 },
-        { key: "tool_executable", label: "Tool Executable", group: "quality", render: q => bool(q.tool_executable), visible: hasRecorded(q => q.tool_executable) },
-        { key: "cypher_solution_match", label: "Cypher Solution / Grounding Match", group: "quality", render: q => bool(q.cypher_solution_match), visible: hasRecorded(q => q.cypher_solution_match) },
         { key: "final_answer_match", label: "Final Answer Match", group: "quality", render: q => bool(q.final_answer_match) },
         { key: "input_tokens", label: "Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens) },
         { key: "cached_input_tokens", label: "Cached Input Tokens", group: "tokens" },
@@ -2287,8 +2248,6 @@ _HTML_TEMPLATE = """<!doctype html>
         <dl class="kv">
           <dt>Configuration</dt><dd>${escapeHtml(q.configuration)}</dd>
           <dt>Provider / Model</dt><dd>${escapeHtml(q.provider_model)}</dd>
-          <dt>Tool Executable</dt><dd>${bool(q.tool_executable)}</dd>
-          <dt>Cypher Solution / Grounding Match</dt><dd>${bool(q.cypher_solution_match)}</dd>
           <dt>Final Answer Match</dt><dd>${bool(q.final_answer_match)}</dd>
           <dt>Input Tokens</dt><dd>${escapeHtml(q.input_tokens)}</dd>
           <dt>Cached Input Tokens</dt><dd>${escapeHtml(q.cached_input_tokens)}</dd>
@@ -2301,7 +2260,6 @@ _HTML_TEMPLATE = """<!doctype html>
         <h4>Answer</h4><pre>${escapeHtml(q.answer)}</pre>
         <h4>Generated Cypher</h4><pre>${escapeHtml(prettyValue(q.generated_cypher))}</pre>
         <h4>Cypher Tool Output</h4><pre>${escapeHtml(prettyValue(q.cypher_tool_output))}</pre>
-        <h4>Cypher Validation Issues</h4><pre>${escapeHtml(prettyValue(q.cypher_validation_issues || []))}</pre>
         <details class="validation-detail-group">
             <summary>Latency</summary>
             <div class="validation-detail-group-body">

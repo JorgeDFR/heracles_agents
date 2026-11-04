@@ -179,9 +179,6 @@ class ConfigurationAnalysisSummary(BaseModel):
     accuracy: Optional[float] = None
     final_answer_match_count: int = 0
     final_answer_match_rate: Optional[float] = None
-    cypher_solution_match_count: int = 0
-    cypher_solution_match_evaluated: int = 0
-    cypher_solution_match_rate: Optional[float] = None
     tool_executable_count: int = 0
     tool_executable_evaluated: int = 0
     tool_executable_rate: Optional[float] = None
@@ -220,11 +217,9 @@ class QuestionAnalysis(BaseModel):
     valid_answer_format: bool
     correct: bool
     final_answer_match: Optional[bool] = None
-    cypher_solution_match: Optional[bool] = None
     tool_executable: Optional[bool] = None
     generated_cypher: Optional[str] = None
     cypher_tool_output: Any = None
-    cypher_validation_issues: list[str] = Field(default_factory=list)
     input_tokens: int
     output_tokens: int
     n_tool_calls: int
@@ -481,12 +476,6 @@ def make_configuration_analysis_summary(
         for q in analyzed_questions
         if getattr(getattr(q, "analysis", None), "final_answer_match", False) is True
     )
-    cypher_solution_values = [
-        getattr(getattr(q, "analysis", None), "cypher_solution_match", None)
-        for q in analyzed_questions
-    ]
-    cypher_solution_evaluated = sum(value is not None for value in cypher_solution_values)
-    cypher_solution_match_count = sum(value is True for value in cypher_solution_values)
     tool_executable_values = [
         getattr(getattr(q, "analysis", None), "tool_executable", None)
         for q in analyzed_questions
@@ -553,11 +542,6 @@ def make_configuration_analysis_summary(
         accuracy=_rate(correct_count, n_questions),
         final_answer_match_count=final_answer_match_count,
         final_answer_match_rate=_rate(final_answer_match_count, n_questions),
-        cypher_solution_match_count=cypher_solution_match_count,
-        cypher_solution_match_evaluated=cypher_solution_evaluated,
-        cypher_solution_match_rate=_rate(
-            cypher_solution_match_count, cypher_solution_evaluated
-        ),
         tool_executable_count=tool_executable_count,
         tool_executable_evaluated=tool_executable_evaluated,
         tool_executable_rate=_rate(tool_executable_count, tool_executable_evaluated),

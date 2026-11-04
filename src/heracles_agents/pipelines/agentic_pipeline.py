@@ -21,7 +21,7 @@ from heracles_agents.llm_interface import (
     make_latency_metrics,
 )
 from heracles_agents.pipelines.comparisons import evaluate_answer
-from heracles_agents.pipelines.cypher_validation import validate_last_cypher_tool_call
+from heracles_agents.pipelines.cypher_execution import summarize_last_cypher_tool_call
 from heracles_agents.pipelines.local_metrics import (
     make_local_resource_metrics,
     make_question_local_resource_metrics,
@@ -103,7 +103,6 @@ def agentic_pipeline(exp):
             finally:
                 parsing_validation_seconds += perf_counter() - validation_started
             logger.debug(f"\n\nCorrect? {correct}\n\n")
-            cypher_validation = validate_last_cypher_tool_call(question, contexts)
 
             agent_sequence = AgentSequence(
                 description="cypher-agent", responses=cxt.get_agent_responses()
@@ -114,7 +113,7 @@ def agentic_pipeline(exp):
                 correct=correct,
                 valid_answer_format=valid_format,
                 final_answer_match=correct,
-                **cypher_validation,
+                **summarize_last_cypher_tool_call(contexts),
                 **make_usage_token_metrics(contexts),
                 output_tokens=cxt.total_output_tokens,
                 n_tool_calls=cxt.n_tool_calls,
@@ -143,7 +142,7 @@ def agentic_pipeline(exp):
                 correct=False,
                 valid_answer_format=False,
                 final_answer_match=False,
-                **validate_last_cypher_tool_call(question, contexts),
+                **summarize_last_cypher_tool_call(contexts),
                 **make_usage_token_metrics(contexts),
                 output_tokens=sum(
                     getattr(context, "total_output_tokens", 0) for context in contexts

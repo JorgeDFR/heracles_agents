@@ -1,6 +1,8 @@
 from collections import deque
 from types import SimpleNamespace
 
+import pytest
+
 from heracles_agents.llm_interface import AgentResponse, EvalQuestion
 from heracles_agents.pipelines import (
     agentic_pipeline,
@@ -288,3 +290,56 @@ def test_feedforward_codegen_pipeline_happy_path(monkeypatch):
         item["content"] for item in render_openai_prompt(FakeContext.instances[0].prompt)
     ]
     assert "Results: 2" in FakeContext.instances[1].prompt.novel_instruction
+
+
+@pytest.mark.parametrize(
+    "comparison_type,solution,answer,expected_match",
+    [
+        ("SLDP", "2", "2", True),
+        ("SLDP", "2", "5", False),
+        ("PDDL", "(holding O1)", "(holding O1)", True),
+        ("PDDL", "(holding O1)", "(holding O2)", False),
+    ],
+)
+def test_agentic_pipeline_scores_only_final_answer(
+    monkeypatch, comparison_type, solution, answer, expected_match
+):
+    class CypherContext(FakeContext):
+        def __init__(self, agent):
+            super().__init__(agent)
+            self.answer = answer
+            self.tool_executions = [{
+                "tool_name": "run_cypher_query",
+                "tool_args": {"cypher_string": "MATCH (n) RETURN n"},
+                "rows": [{"n": "unrelated result"}],
+                "output": "unrelated result",
+                "executable": True,
+            }]
+
+    question = EvalQuestion(
+        uid="q1",
+        name="Question",
+        question="Question",
+        solution=solution,
+        correctness_comparator={"comparison_type": comparison_type, "relation": "equal"},
+    )
+    monkeypatch.setattr(agentic_pipeline, "AgentContext", CypherContext)
+    exp = SimpleNamespace(
+        questions=[question],
+        phases={"main": make_agent()},
+        dsg_interface=SimpleNamespace(dsg_interface_type="none"),
+    )
+
+    result = agentic_pipeline.agentic_pipeline(exp)
+
+    analyzed = result.analyzed_questions[0]
+    assert analyzed.completed is True
+    assert analyzed.analysis.final_answer_match is expected_match
+    assert analyzed.analysis.generated_cypher == "MATCH (n) RETURN n"
+    assert analyzed.analysis.cypher_tool_output == "unrelated result"
+    assert "cypher_solution_match" not in analyzed.analysis.model_dump()
+    assert "cypher_validation_issues" not in analyzed.analysis.model_dump()
+    assert not any(
+        key.startswith("cypher_solution_match")
+        for key in result.analysis_summary.model_dump()
+    )

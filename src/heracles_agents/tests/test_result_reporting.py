@@ -1,6 +1,8 @@
 import yaml
 from rich.console import Console
 
+from heracles_agents.llm_interface import AnalyzedQuestions
+
 from heracles_agents.cli.result_reporting import (
     _html_payload,
     load_result_file,
@@ -244,7 +246,7 @@ def test_load_result_file_normalizes_experiment_yaml_shape(tmp_path):
     assert configuration.questions[0].cost["total_cost_usd"] == 0.001
     assert configuration.questions[0].n_sequences == 1
     assert configuration.questions[0].final_answer_match is True
-    assert configuration.questions[0].cypher_solution_match is True
+    assert not hasattr(configuration.questions[0], "cypher_solution_match")
     assert configuration.questions[0].tool_executable is True
     assert configuration.questions[0].generated_cypher.endswith("AS count")
 
@@ -276,7 +278,7 @@ def test_summarize_configuration_counts_core_metrics_and_optional_metrics(tmp_pa
     assert summary.correct_count == 1
     assert summary.accuracy == 0.5
     assert summary.final_answer_match_rate == 0.5
-    assert summary.cypher_solution_match_rate == 0.5
+    assert not hasattr(summary, "cypher_solution_match_rate")
     assert summary.tool_executable_rate == 1.0
     assert summary.input_tokens_total == 30
     assert summary.input_tokens_avg == 15
@@ -412,7 +414,6 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
     assert "Collapse all" not in html
     assert "Generated Cypher" in html
     assert "Cypher Tool Output" in html
-    assert "Cypher Validation Issues" in html
     assert "Parsed Response" not in html
     assert "openrouter" in html
     assert "Reasoning Support" in html
@@ -451,16 +452,31 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
         "function selectQuestionRow", 1
     )[0]
     assert 'key: "source_path", label: "Source"' not in questions_renderer
-    assert questions_renderer.index('label: "Tool Executable"') < questions_renderer.index(
-        'label: "Cypher Solution / Grounding Match"'
-    ) < questions_renderer.index('label: "Final Answer Match"')
+    assert 'label: "Final Answer Match"' in questions_renderer
+    overview_renderer = html.split("function renderOverview()", 1)[1].split(
+        "function renderArtifacts()", 1
+    )[0]
+    quality_columns = [
+        line for line in overview_renderer.splitlines() if 'group: "quality"' in line
+    ]
+    assert len(quality_columns) == 2
+    assert 'label: "Questions"' in quality_columns[0]
+    assert 'label: "Final Answer Match"' in quality_columns[1]
+    assert "Tool Executable" not in html
+    assert "Cypher Solution / Grounding Match" not in html
+    assert "Cypher Validation Issues" not in html
 
     detail_renderer = html.split("function renderDetail()", 1)[1].split(
         "function selectTab", 1
     )[0]
-    assert detail_renderer.index("<dt>Tool Executable</dt>") < detail_renderer.index(
-        "<dt>Cypher Solution / Grounding Match</dt>"
-    ) < detail_renderer.index("<dt>Final Answer Match</dt>")
+    assert "<dt>Final Answer Match</dt>" in detail_renderer
+    assert "<h4>Generated Cypher</h4>" in detail_renderer
+    assert "<h4>Cypher Tool Output</h4>" in detail_renderer
+
+    payload = _html_payload([source])
+    assert "cypher_solution_match" not in payload["questions"][0]
+    assert "tool_executable" not in payload["questions"][0]
+    assert "cypher_validation_issues" not in payload["questions"][0]
 
 
 def test_html_payload_structures_saved_responses_as_messages(tmp_path):
@@ -722,3 +738,25 @@ def test_overlap_metadata_and_subset_summaries_survive_report_loading(tmp_path):
     assert 'label: "Task Overlap"' in html
     assert 'rowsForActiveMetricGroup(overviewForOverlap(), "overview")' in html
     assert 'rowsForActiveMetricGroup(questionsForOverlap(), "questions")' in html
+
+
+def test_legacy_result_metrics_are_ignored_when_loading_analysis():
+    data = sample_result_data()["experiment_configurations"]["canary"]
+    data["analysis_summary"] = {
+        "questions": 2,
+        "final_answer_match_count": 1,
+        "final_answer_match_rate": 0.5,
+        "cypher_solution_match_count": 1,
+        "cypher_solution_match_evaluated": 2,
+        "cypher_solution_match_rate": 0.5,
+    }
+
+    result = AnalyzedQuestions.model_validate(data).model_dump()
+
+    assert not any(
+        key.startswith("cypher_solution_match") for key in result["analysis_summary"]
+    )
+    assert result["analysis_summary"]["final_answer_match_rate"] == 0.5
+    for question in result["analyzed_questions"]:
+        assert "cypher_solution_match" not in question["analysis"]
+        assert "cypher_validation_issues" not in question["analysis"]
