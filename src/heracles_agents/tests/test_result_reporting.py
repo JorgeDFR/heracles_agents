@@ -452,10 +452,38 @@ def test_html_report_contains_metrics_sequences_and_escaped_data(tmp_path):
         "function selectQuestionRow", 1
     )[0]
     assert 'key: "source_path", label: "Source"' not in questions_renderer
+    assert 'key: "provider", label: "Provider"' not in questions_renderer
+    assert 'label: "Provider / Model"' in questions_renderer
+    assert 'label: "Cached Input Tokens"' not in questions_renderer
+    assert 'label: "Reasoning Tokens"' not in questions_renderer
+    assert 'label: "Validation Latency"' not in questions_renderer
+    assert 'label: "GPU Energy", group: "energy"' in questions_renderer
+    assert 'label: "GPU Energy", group: "local_resources"' not in questions_renderer
     assert 'label: "Final Answer Match"' in questions_renderer
     overview_renderer = html.split("function renderOverview()", 1)[1].split(
-        "function renderArtifacts()", 1
+        "function renderProviderModels()", 1
     )[0]
+    assert 'key: "provider", label: "Provider"' not in overview_renderer
+    assert 'label: "Provider / Model"' in overview_renderer
+    assert 'label: "Task Overlap"' not in overview_renderer
+    cost_columns = [
+        line for line in overview_renderer.splitlines() if 'group: "cost"' in line
+    ]
+    assert len(cost_columns) == 3
+    for column, label in zip(
+        cost_columns, ("Total Cost", "Cost per Question", "Cost per Success")
+    ):
+        assert f'label: "{label}"' in column
+    energy_columns = [
+        line for line in overview_renderer.splitlines() if 'group: "energy"' in line
+    ]
+    assert len(energy_columns) == 3
+    for column, label in zip(
+        energy_columns, ("Total Energy", "Energy per Question", "Energy per Success")
+    ):
+        assert f'label: "{label}"' in column
+    assert 'label: "GPU Energy", group: "local_resources"' not in overview_renderer
+    assert 'id="energy-control">' in html
     quality_columns = [
         line for line in overview_renderer.splitlines() if 'group: "quality"' in line
     ]

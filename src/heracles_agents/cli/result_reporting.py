@@ -1749,6 +1749,7 @@ _HTML_TEMPLATE = """<!doctype html>
         <label><input type="radio" name="metric-group" data-group="tokens"> Tokens/tools</label>
         <label><input type="radio" name="metric-group" data-group="latency"> Latency</label>
         <label><input type="radio" name="metric-group" data-group="cost"> Cost</label>
+        <label id="energy-control"><input type="radio" name="metric-group" data-group="energy"> Energy</label>
         <label><input type="radio" name="metric-group" data-group="local_resources"> Local Resources</label>
       </div>
     </div>
@@ -1886,6 +1887,10 @@ _HTML_TEMPLATE = """<!doctype html>
     function localSummary(row, key) {
       return row.local_resources_summary ? row.local_resources_summary[key] : null;
     }
+    function energyPer(row, count) {
+      const total = localSummary(row, "gpu_energy_wh");
+      return hasRecordedValue(total) && count > 0 ? total / count : null;
+    }
     function firstRecordedValue(...values) {
       return values.find(value => value !== null && value !== undefined && value !== "");
     }
@@ -1934,6 +1939,13 @@ _HTML_TEMPLATE = """<!doctype html>
           tableKind === "overview" ? row.summary.cost_total_usd : cost(row)
         ));
       }
+      if (group === "energy") {
+        return rows.filter(row => hasRecordedValue(
+          tableKind === "overview"
+            ? localSummary(row, "gpu_energy_wh")
+            : questionLocalSummary(row, "gpu_energy_wh")
+        ));
+      }
       if (group === "local_resources") {
         return rows.filter(row => {
           const summary = tableKind === "overview"
@@ -1943,9 +1955,10 @@ _HTML_TEMPLATE = """<!doctype html>
                 ram: questionLocalSummary(row, "ram_peak_bytes"),
                 gpu: questionLocalSummary(row, "gpu_avg_percent"),
                 power: questionLocalSummary(row, "gpu_power_avg_w"),
-                energy: questionLocalSummary(row, "gpu_energy_wh"),
               };
-          return Object.values(summary).some(hasRecordedValue);
+          return Object.entries(summary).some(([key, value]) =>
+            key !== "gpu_energy_wh" && hasRecordedValue(value)
+          );
         });
       }
       return rows;
@@ -2065,11 +2078,8 @@ _HTML_TEMPLATE = """<!doctype html>
     }
     function renderOverview() {
       const columns = [
-        { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
-        { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
-        { key: "overlap_class", label: "Task Overlap", render: r => escapeHtml(overlapLabel(r.overlap_class)) },
         { key: "questions", label: "Questions", group: "quality", render: r => text(r.summary.questions), sortValue: r => r.summary.questions },
         { key: "final_answer_match_rate", label: "Final Answer Match", group: "quality", render: r => percent((r.summary.final_answer_match_rate || 0) * 100), sortValue: r => r.summary.final_answer_match_rate },
         { key: "input_tokens_total", label: "Input Tokens", group: "tokens", render: r => text(r.summary.input_tokens_total), sortValue: r => r.summary.input_tokens_total, visible: hasValue(r => r.summary.input_tokens_total) },
@@ -2082,15 +2092,18 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "cold_start_load_duration_seconds", label: "Cold-start Load Duration", group: "latency", render: r => seconds(r.summary.cold_start_load_duration_seconds), sortValue: r => r.summary.cold_start_load_duration_seconds, visible: hasValue(r => r.summary.cold_start_load_duration_seconds) },
         { key: "load_duration_total", label: "Measured Load Duration", group: "latency", render: r => seconds(r.summary.load_duration_total), sortValue: r => r.summary.load_duration_total, visible: hasValue(r => r.summary.load_duration_total) },
         { key: "warmup_resident_verified", label: "Warmup Resident", group: "latency", render: r => bool(r.summary.warmup_resident_verified), sortValue: r => r.summary.warmup_resident_verified, visible: hasRecorded(r => r.summary.warmup_resident_verified) },
-        { key: "cost_total_usd", label: "Cost", group: "cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd, visible: hasValue(r => r.summary.cost_total_usd) },
-        { key: "cost_per_correct_answer_usd", label: "Cost per Success", group: "cost", render: r => money(r.summary.cost_per_correct_answer_usd), sortValue: r => r.summary.cost_per_correct_answer_usd, visible: hasRecorded(r => r.summary.cost_per_correct_answer_usd) },
+        { key: "cost_total_usd", label: "Total Cost", group: "cost", render: r => money(r.summary.cost_total_usd), sortValue: r => r.summary.cost_total_usd },
+        { key: "cost_per_question_usd", label: "Cost per Question", group: "cost", render: r => money(r.summary.cost_per_question_usd), sortValue: r => r.summary.cost_per_question_usd },
+        { key: "cost_per_correct_answer_usd", label: "Cost per Success", group: "cost", render: r => money(r.summary.cost_per_correct_answer_usd), sortValue: r => r.summary.cost_per_correct_answer_usd },
         { key: "local_resources_summary.cpu_avg_percent", label: "CPU Avg", group: "local_resources", render: r => percent(localSummary(r, "cpu_avg_percent")), sortValue: r => localSummary(r, "cpu_avg_percent"), visible: hasValue(r => localSummary(r, "cpu_avg_percent")) },
         { key: "local_resources_summary.cpu_peak_percent", label: "CPU Peak", group: "local_resources", render: r => percent(localSummary(r, "cpu_peak_percent")), sortValue: r => localSummary(r, "cpu_peak_percent"), visible: hasValue(r => localSummary(r, "cpu_peak_percent")) },
         { key: "local_resources_summary.ram_peak_bytes", label: "RAM Peak", group: "local_resources", render: r => bytes(localSummary(r, "ram_peak_bytes")), sortValue: r => localSummary(r, "ram_peak_bytes"), visible: hasValue(r => localSummary(r, "ram_peak_bytes")) },
         { key: "local_resources_summary.gpu_vram_peak_mib", label: "VRAM Peak", group: "local_resources", render: r => mib(localSummary(r, "gpu_vram_peak_mib")), sortValue: r => localSummary(r, "gpu_vram_peak_mib"), visible: hasValue(r => localSummary(r, "gpu_vram_peak_mib")) },
         { key: "local_resources_summary.gpu_avg_percent", label: "GPU Avg", group: "local_resources", render: r => percent(localSummary(r, "gpu_avg_percent")), sortValue: r => localSummary(r, "gpu_avg_percent"), visible: hasValue(r => localSummary(r, "gpu_avg_percent")) },
         { key: "local_resources_summary.gpu_power_avg_w", label: "GPU Power Avg", group: "local_resources", render: r => watts(localSummary(r, "gpu_power_avg_w")), sortValue: r => localSummary(r, "gpu_power_avg_w"), visible: hasValue(r => localSummary(r, "gpu_power_avg_w")) },
-        { key: "local_resources_summary.gpu_energy_wh", label: "GPU Energy", group: "local_resources", render: r => wattHours(localSummary(r, "gpu_energy_wh")), sortValue: r => localSummary(r, "gpu_energy_wh"), visible: hasValue(r => localSummary(r, "gpu_energy_wh")) },
+        { key: "local_resources_summary.gpu_energy_wh", label: "Total Energy", group: "energy", render: r => wattHours(localSummary(r, "gpu_energy_wh")), sortValue: r => localSummary(r, "gpu_energy_wh") },
+        { key: "energy_per_question_wh", label: "Energy per Question", group: "energy", render: r => wattHours(energyPer(r, r.summary.questions)), sortValue: r => energyPer(r, r.summary.questions) },
+        { key: "energy_per_success_wh", label: "Energy per Success", group: "energy", render: r => wattHours(energyPer(r, r.summary.correct_count)), sortValue: r => energyPer(r, r.summary.correct_count) },
       ];
       renderTable(
         document.getElementById("overview"),
@@ -2100,7 +2113,6 @@ _HTML_TEMPLATE = """<!doctype html>
     }
     function renderProviderModels() {
       const columns = [
-        { key: "source_path", label: "Source" },
         { key: "configuration", label: "Configuration" },
         { key: "phase", label: "Phase" },
         { key: "provider", label: "Provider" },
@@ -2125,7 +2137,6 @@ _HTML_TEMPLATE = """<!doctype html>
     function renderQuestions() {
       const columns = [
         { key: "configuration", label: "Configuration" },
-        { key: "provider", label: "Provider" },
         { key: "provider_model", label: "Provider / Model" },
         { key: "name", label: "Topic" },
         { key: "question_type", label: "Question Type", visible: hasRecorded(q => q.question_type) },
@@ -2133,16 +2144,13 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "tags", label: "Tags", render: q => escapeHtml((q.tags || []).join(", ")), visible: q => (q.tags || []).length > 0 },
         { key: "final_answer_match", label: "Final Answer Match", group: "quality", render: q => bool(q.final_answer_match) },
         { key: "input_tokens", label: "Input Tokens", group: "tokens", visible: hasValue(q => q.input_tokens) },
-        { key: "cached_input_tokens", label: "Cached Input Tokens", group: "tokens" },
         { key: "output_tokens", label: "Output Tokens", group: "tokens", visible: hasValue(q => q.output_tokens) },
-        { key: "reasoning_tokens", label: "Reasoning Tokens", group: "tokens" },
         { key: "n_tool_calls", label: "Tool Calls", group: "tokens", visible: hasValue(q => q.n_tool_calls) },
         { key: "latency.output_tokens_per_second", label: "Throughput", group: "latency", render: q => tokensPerSecond(questionThroughput(q)), sortValue: q => questionThroughput(q), visible: hasRecorded(q => questionThroughput(q)) },
         { key: "latency.end_to_end_seconds", label: "End-to-End Latency", group: "latency", render: q => seconds(metric(q, "end_to_end_seconds")), visible: hasValue(q => metric(q, "end_to_end_seconds")) },
         { key: "latency.llm_call_seconds", label: "LLM Latency", group: "latency", render: q => seconds(metric(q, "llm_call_seconds")), visible: hasValue(q => metric(q, "llm_call_seconds")) },
         { key: "latency.tool_execution_seconds", label: "Tool Latency", group: "latency", render: q => seconds(metric(q, "tool_execution_seconds")), visible: hasValue(q => metric(q, "tool_execution_seconds")) },
         { key: "latency.neo4j_query_seconds", label: "Neo4j Latency", group: "latency", render: q => seconds(metric(q, "neo4j_query_seconds")), visible: hasValue(q => metric(q, "neo4j_query_seconds")) },
-        { key: "latency.parsing_validation_seconds", label: "Validation Latency", group: "latency", render: q => seconds(metric(q, "parsing_validation_seconds")), visible: hasValue(q => metric(q, "parsing_validation_seconds")) },
         { key: "latency.retry_wait_seconds", label: "Retry Wait", group: "latency", render: q => seconds(metric(q, "retry_wait_seconds")), visible: hasValue(q => metric(q, "retry_wait_seconds")) },
         { key: "cost", label: "Cost USD", group: "cost", render: q => money(cost(q)), sortValue: q => cost(q), visible: hasValue(q => cost(q)) },
         { key: "local_resources.cpu_avg_percent", label: "CPU Avg", group: "local_resources", render: q => percent(questionLocalSummary(q, "cpu_avg_percent")), sortValue: q => questionLocalSummary(q, "cpu_avg_percent"), visible: hasRecorded(q => questionLocalSummary(q, "cpu_avg_percent")) },
@@ -2151,7 +2159,7 @@ _HTML_TEMPLATE = """<!doctype html>
         { key: "local_resources.gpu_vram_peak_mib", label: "VRAM Peak", group: "local_resources", render: q => mib(questionLocalSummary(q, "gpu_vram_peak_mib")), sortValue: q => questionLocalSummary(q, "gpu_vram_peak_mib"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_vram_peak_mib")) },
         { key: "local_resources.gpu_avg_percent", label: "GPU Avg", group: "local_resources", render: q => percent(questionLocalSummary(q, "gpu_avg_percent")), sortValue: q => questionLocalSummary(q, "gpu_avg_percent"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_avg_percent")) },
         { key: "local_resources.gpu_power_avg_w", label: "GPU Power Avg", group: "local_resources", render: q => watts(questionLocalSummary(q, "gpu_power_avg_w")), sortValue: q => questionLocalSummary(q, "gpu_power_avg_w"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_power_avg_w")) },
-        { key: "local_resources.gpu_energy_wh", label: "GPU Energy", group: "local_resources", render: q => wattHours(questionLocalSummary(q, "gpu_energy_wh")), sortValue: q => questionLocalSummary(q, "gpu_energy_wh"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_energy_wh")) },
+        { key: "local_resources.gpu_energy_wh", label: "GPU Energy", group: "energy", render: q => wattHours(questionLocalSummary(q, "gpu_energy_wh")), sortValue: q => questionLocalSummary(q, "gpu_energy_wh"), visible: hasRecorded(q => questionLocalSummary(q, "gpu_energy_wh")) },
       ];
       renderTable(
         document.getElementById("questions"),
