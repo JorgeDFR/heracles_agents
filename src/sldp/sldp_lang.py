@@ -40,14 +40,14 @@ def is_point(t: tuple):
     return t[0] == "point"
 
 
-def equals(a, b):
+def equals(a, b, *, unordered_pairs=False):
     if type(a) is tuple and type(b) is tuple:
         if is_list(a) and is_list(b):
-            return list_equals(a, b)
+            return list_equals(a, b, unordered_pairs=unordered_pairs)
         elif is_dict(a) and is_dict(b):
-            return dict_equals(a, b)
+            return dict_equals(a, b, unordered_pairs=unordered_pairs)
         elif is_set(a) and is_set(b):
-            return set_equals(a, b)
+            return set_equals(a, b, unordered_pairs=unordered_pairs)
         elif is_point(a) and is_point(b):
             return point_equals(a, b)
     else:
@@ -60,11 +60,21 @@ def equals(a, b):
     return False
 
 
-def list_equals(a: tuple, b: tuple):
+def list_equals(a: tuple, b: tuple, *, unordered_pairs=False):
     """List is like ("list", e1, e2, e4)"""
     if len(a) != len(b):
         return False
-    return all([equals(e1, e2) for e1, e2 in zip(a, b)])
+    if all(equals(e1, e2, unordered_pairs=unordered_pairs) for e1, e2 in zip(a, b)):
+        return True
+    # Pair questions opt in explicitly. Ordinary lists (including two-node
+    # routes), numeric coordinate lists and outer list ordering stay ordered.
+    if (
+        unordered_pairs
+        and len(a) == 3
+        and all(isinstance(v, str) for v in (*a[1:], *b[1:]))
+    ):
+        return equals(a[1], b[2]) and equals(a[2], b[1])
+    return False
 
 
 def extract_uniform_keys(list_of_dicts):
@@ -90,7 +100,7 @@ def dict_lookup(d, key):
     return None
 
 
-def dict_equals(a: tuple, b: tuple):
+def dict_equals(a: tuple, b: tuple, *, unordered_pairs=False):
     """Dict is like ("dict", ("pair", k1, v1), ("pair", k2, v2))"""
     assert is_dict(a)
     assert is_dict(b)
@@ -103,7 +113,7 @@ def dict_equals(a: tuple, b: tuple):
         if vb is None:
             print(f"{ka} from a not in b")
             return False
-        if not equals(va, vb):
+        if not equals(va, vb, unordered_pairs=unordered_pairs):
             print(f"For key {ka}, value in a ({va}) does not match value in b ({vb})")
             return False
 
@@ -113,30 +123,30 @@ def dict_equals(a: tuple, b: tuple):
         if vb is None:
             print(f"{kb} from b not in a")
             return False
-        if not equals(va, vb):
+        if not equals(va, vb, unordered_pairs=unordered_pairs):
             return False
 
     return True
 
 
-def element_in_set(a, b: tuple):
+def element_in_set(a, b: tuple, *, unordered_pairs=False):
     assert is_set(b)
     for e in b[1:]:
-        if equals(a, e):
+        if equals(a, e, unordered_pairs=unordered_pairs):
             return True
     return False
 
 
-def set_equals(a: tuple, b: tuple):
+def set_equals(a: tuple, b: tuple, *, unordered_pairs=False):
     assert is_set(a)
     assert is_set(b)
 
     for e in a[1:]:
-        if not element_in_set(e, b):
+        if not element_in_set(e, b, unordered_pairs=unordered_pairs):
             return False
 
     for e in b[1:]:
-        if not element_in_set(e, a):
+        if not element_in_set(e, a, unordered_pairs=unordered_pairs):
             return False
 
     return True
@@ -160,11 +170,11 @@ def point_equals(a: tuple, b: tuple):
     return True
 
 
-def sldp_equals(s1, s2):
+def sldp_equals(s1, s2, *, unordered_pairs=False):
     exp1 = sldp_parser_impl(s1)
     exp2 = sldp_parser_impl(s2)
 
-    return equals(exp1, exp2)
+    return equals(exp1, exp2, unordered_pairs=unordered_pairs)
 
 
 if __name__ == "__main__":

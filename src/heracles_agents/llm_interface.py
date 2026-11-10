@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 class SldpComparison(BaseModel):
     comparison_type: Literal["SLDP"]
     relation: str  # equal, subset, superset
+    unordered_pairs: bool = False
 
 
 class PddlComparison(BaseModel):

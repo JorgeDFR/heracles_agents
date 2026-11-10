@@ -3,8 +3,6 @@ import logging
 import re
 
 from plum import dispatch
-
-from heracles_agents.llm_interface import PddlComparison, SldpComparison
 from pypddl.pddl_goal_manipulations import pddl_goal_equals
 from pypddl.pddl_goal_parser import lark_parse_pddl_goal
 from pypddl.pddl_goal_types import (
@@ -16,6 +14,8 @@ from pypddl.pddl_goal_types import (
     NegatedClause,
 )
 from sldp.sldp_lang import lark_parse_sldp, sldp_equals
+
+from heracles_agents.llm_interface import PddlComparison, SldpComparison
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def _valid_grounded_pddl_goal(goal) -> bool:
     return isinstance(goal, Bool)
 
 
-def _normalized_singleton_set_answer(answer, solution):
+def _normalized_singleton_set_answer(answer, solution, *, unordered_pairs=False):
     """Return a narrowly repaired SLDP singleton-set answer, if applicable."""
     try:
         solution_ast = lark_parse_sldp(solution)
@@ -79,7 +79,7 @@ def _normalized_singleton_set_answer(answer, solution):
             lark_parse_sldp(candidate)
         except Exception:
             continue
-        if sldp_equals(solution, candidate):
+        if sldp_equals(solution, candidate, unordered_pairs=unordered_pairs):
             return candidate
     return None
 
@@ -117,8 +117,12 @@ def evaluate_answer(comparator: SldpComparison, answer, solution):
         logger.warning(str(ex))
         valid_sldp = False
 
-    correct = valid_sldp and sldp_equals(solution, answer)
+    correct = valid_sldp and sldp_equals(
+        solution, answer, unordered_pairs=comparator.unordered_pairs
+    )
     if not correct:
-        normalized = _normalized_singleton_set_answer(answer, solution)
+        normalized = _normalized_singleton_set_answer(
+            answer, solution, unordered_pairs=comparator.unordered_pairs
+        )
         correct = normalized is not None
     return valid_sldp, correct
