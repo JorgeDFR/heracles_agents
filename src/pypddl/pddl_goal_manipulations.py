@@ -135,10 +135,9 @@ def distribute_conjunction(conjunction: Conjunction):
 
     disjunction_to_pull = ors[0]
 
-    c1 = Conjunction(rest + ors[1:] + [disjunction_to_pull.clauses[0]])
-    c2 = Conjunction(rest + ors[1:] + disjunction_to_pull.clauses[1:])
-
-    return Disjunction([c1, c2])
+    return Disjunction(
+        [Conjunction(rest + ors[1:] + [clause]) for clause in disjunction_to_pull.clauses]
+    )
 
 
 ### Distribute Disjunction
@@ -156,10 +155,9 @@ def distribute_disjunction(disjunction: Disjunction):
 
     conjunction_to_pull = ands[0]
 
-    c1 = Disjunction(rest + ands[1:] + [conjunction_to_pull.clauses[0]])
-    c2 = Disjunction(rest + ands[1:] + conjunction_to_pull.clauses[1:])
-
-    return Conjunction([c1, c2])
+    return Conjunction(
+        [Disjunction(rest + ands[1:] + [clause]) for clause in conjunction_to_pull.clauses]
+    )
 
 
 @dispatch

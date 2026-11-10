@@ -41,6 +41,21 @@ def test_distribution():
     assert_dnf_equal("(and ?a (or ?b ?c))", "(or (and ?a ?b) (and ?a ?c))")
 
 
+def test_distribution_with_multiple_alternatives():
+    assert_dnf_equal(
+        "(and ?a (or ?b ?c ?d ?e))",
+        "(or (and ?a ?b) (and ?a ?c) (and ?a ?d) (and ?a ?e))",
+    )
+
+
+def test_distribution_preserves_all_combinations():
+    assert_dnf_equal(
+        "(and (or ?a ?b) (or ?c ?d ?e ?f))",
+        "(or (and ?a ?c) (and ?a ?d) (and ?a ?e) (and ?a ?f) "
+        "(and ?b ?c) (and ?b ?d) (and ?b ?e) (and ?b ?f))",
+    )
+
+
 def test_nested_distribution():
     formula = "(or (and ?a ?b) (and ?c ?d) (and (not ?a) (not ?d)))"
     expected = "(or (and ?a ?b) (and ?c ?d) (and (not ?a) (not ?d)))"

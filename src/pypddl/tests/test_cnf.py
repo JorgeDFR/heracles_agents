@@ -28,6 +28,21 @@ def test_distribution():
     assert_cnf_equal("(or ?a (and ?b ?c))", "(and (or ?a ?b) (or ?a ?c))")
 
 
+def test_distribution_with_multiple_alternatives():
+    assert_cnf_equal(
+        "(or ?a (and ?b ?c ?d ?e))",
+        "(and (or ?a ?b) (or ?a ?c) (or ?a ?d) (or ?a ?e))",
+    )
+
+
+def test_distribution_preserves_all_combinations():
+    assert_cnf_equal(
+        "(or (and ?a ?b) (and ?c ?d ?e ?f))",
+        "(and (or ?a ?c) (or ?a ?d) (or ?a ?e) (or ?a ?f) "
+        "(or ?b ?c) (or ?b ?d) (or ?b ?e) (or ?b ?f))",
+    )
+
+
 def test_deeply_nested_expression():
     formula = "(or (and ?a ?b) (and ?c ?d))"
     expected = "(and (or ?a ?c) (or ?a ?d) (or ?b ?c) (or ?b ?d))"

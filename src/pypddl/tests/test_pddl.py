@@ -1,3 +1,6 @@
+from itertools import permutations
+
+import pytest
 from pypddl.pddl_goal_manipulations import (
     pddl_goal_equals,
 )
@@ -51,3 +54,32 @@ def test_simplification():
 
 def test_demorgan():
     assert_equal("(not (and (vp p1) (vp p2)))", "(or (not (vp p1)) (not (vp p2)))")
+
+
+PDDL039_SOLUTION = (
+    "(and (or (safe O29) (safe O30)) "
+    "(or (safe O87) (safe O92) (safe O97) (safe O102)))"
+)
+
+
+@pytest.mark.parametrize("order", list(permutations(["O87", "O92", "O97", "O102"])))
+def test_pddl039_accepts_reordered_alternatives(order):
+    alternatives = " ".join(f"(safe {object_id})" for object_id in order)
+    answer = f"(and (or (safe O29) (safe O30)) (or {alternatives}))"
+
+    assert_equal(answer, PDDL039_SOLUTION)
+    assert_equal(PDDL039_SOLUTION, answer)
+
+
+@pytest.mark.parametrize(
+    "alternatives",
+    [
+        "(or (safe O87) (safe O92) (safe O102))",
+        "(or (safe O87) (safe O92) (safe O97) (safe O101))",
+        "(or (safe O87) (and (safe O92) (safe O97) (safe O102)))",
+    ],
+)
+def test_pddl039_rejects_changed_alternatives(alternatives):
+    answer = f"(and (or (safe O29) (safe O30)) {alternatives})"
+
+    assert_unequal(answer, PDDL039_SOLUTION)
